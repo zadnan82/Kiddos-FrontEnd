@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form'
 import { Eye, EyeOff, Mail, Lock, ArrowRight } from 'lucide-react'
 import toast from 'react-hot-toast'
 
-import { useAuthStore } from '../stores/authStore'
+import { useAuthStore } from '../stores/authstore'
 import { useLanguageStore } from '../stores/languageStore'
 import Button from '../components/ui/Button'
 import LoadingSpinner from '../components/LoadingSpinner'

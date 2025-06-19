@@ -2,7 +2,7 @@ import React, { useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 
 // Store
-import { useAuthStore } from './stores/authStore'
+import { useAuthStore } from './stores/authstore'
 import { useLanguageStore } from './stores/languageStore'
 
 // Components
