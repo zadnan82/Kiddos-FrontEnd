@@ -71,7 +71,10 @@ api.interceptors.response.use(
           break
           
         case 404:
-          toast.error('Resource not found')
+          // Don't show toast for 404s in history - handle in component
+          if (!window.location.pathname.includes('/history')) {
+            toast.error('Resource not found')
+          }
           break
           
         case 422:
@@ -98,7 +101,10 @@ api.interceptors.response.use(
           break
           
         default:
-          toast.error(data?.detail || data?.message || 'An error occurred')
+          // Don't show toast for certain endpoints
+          if (!window.location.pathname.includes('/history')) {
+            toast.error(data?.detail || data?.message || 'An error occurred')
+          }
       }
     } else if (error.request) {
       // Network error
@@ -143,8 +149,34 @@ export const contentAPI = {
   getStatus: (sessionId) => api.get(`/content/status/${sessionId}`),
   approve: (sessionId, data) => api.post(`/content/${sessionId}/approve`, data),
   regenerate: (sessionId, data) => api.post(`/content/${sessionId}/regenerate`, data),
-  getHistory: (params) => api.get('/content/history', { params }),
-  deleteContent: (sessionId) => api.delete(`/content/${sessionId}`),
+  
+  // FIXED: Better parameter handling for history
+  getHistory: (params) => {
+    console.log('API: Getting content history with params:', params)
+    
+    // Handle both URLSearchParams and object
+    let queryParams = {}
+    
+    if (params instanceof URLSearchParams) {
+      // Convert URLSearchParams to object
+      for (const [key, value] of params.entries()) {
+        queryParams[key] = value
+      }
+    } else if (typeof params === 'object' && params !== null) {
+      // Filter out empty values
+      queryParams = Object.fromEntries(
+        Object.entries(params).filter(([_, value]) => value !== '' && value !== null && value !== undefined)
+      )
+    }
+    
+    console.log('API: Processed params:', queryParams)
+    return api.get('/content/history', { params: queryParams })
+  },
+  
+  deleteContent: (sessionId) => {
+    console.log('API: Deleting content session:', sessionId)
+    return api.delete(`/content/${sessionId}`)
+  },
 }
 
 export const creditsAPI = {

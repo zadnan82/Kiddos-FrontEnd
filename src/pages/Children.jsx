@@ -35,10 +35,23 @@ const Children = () => {
     reset,
     setValue,
     watch,
+    setError,
+    clearErrors,
     formState: { errors }
-  } = useForm()
+  } = useForm({
+    defaultValues: {
+      nickname: '',
+      age_group: 6,
+      learning_level: 'beginner',
+      interests: [],
+      preferred_language: '',
+      content_difficulty: 'age_appropriate',
+      avatar_id: 1
+    }
+  })
 
   const watchedInterests = watch('interests') || []
+  const watchedAvatarId = watch('avatar_id') || 1
 
   useEffect(() => {
     loadChildren()
@@ -48,10 +61,10 @@ const Children = () => {
     try {
       setIsLoading(true)
       const response = await childrenAPI.getChildren()
-      setChildren(response.data)
+      setChildren(response.data || [])
     } catch (error) {
-      toast.error('Failed to load children')
       console.error('Load children error:', error)
+      toast.error('Failed to load children')
     } finally {
       setIsLoading(false)
     }
@@ -60,19 +73,118 @@ const Children = () => {
   const handleCreateOrUpdate = async (data) => {
     try {
       setIsSubmitting(true)
+      clearErrors() // Clear any previous errors
       
+      console.log('Raw form data:', data)
+      
+      // Validate required fields on frontend
+      if (!data.nickname || data.nickname.trim() === '') {
+        setError('nickname', { 
+          type: 'required', 
+          message: 'Nickname is required' 
+        })
+        return
+      }
+      
+      if (!data.age_group || data.age_group < 2 || data.age_group > 12) {
+        setError('age_group', { 
+          type: 'range', 
+          message: 'Age must be between 2 and 12' 
+        })
+        return
+      }
+
+      // COMPREHENSIVE FIX: Properly format all data
+      const formattedData = {
+        nickname: data.nickname.trim(),
+        age_group: parseInt(data.age_group),
+        learning_level: data.learning_level || 'beginner',
+        interests: Array.isArray(data.interests) ? data.interests : [],
+        content_difficulty: data.content_difficulty || 'age_appropriate',
+        avatar_id: parseInt(data.avatar_id) || 1
+      }
+
+      // Handle optional fields - only include them if they have actual values
+      if (data.full_name && data.full_name.trim()) {
+        formattedData.full_name = data.full_name.trim()
+      }
+
+      // CRITICAL FIX: Only include preferred_language if it's not empty
+      if (data.preferred_language && data.preferred_language.trim() && data.preferred_language !== '') {
+        formattedData.preferred_language = data.preferred_language.trim()
+      }
+      
+      console.log('Formatted data being sent to API:', formattedData)
+      
+      let response
       if (editingChild) {
-        await childrenAPI.updateChild(editingChild.id, data)
+        response = await childrenAPI.updateChild(editingChild.id, formattedData)
         toast.success('Child profile updated successfully!')
       } else {
-        await childrenAPI.createChild(data)
+        response = await childrenAPI.createChild(formattedData)
         toast.success('Child profile created successfully!')
       }
       
+      console.log('API Response:', response.data)
       await loadChildren()
       resetForm()
+      
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to save child profile')
+      console.error('Create/Update child error:', error)
+      
+      // ENHANCED: Better error logging
+      if (error.response) {
+        console.error('Response status:', error.response.status)
+        console.error('Response data:', error.response.data)
+        console.error('Response headers:', error.response.headers)
+        
+        // Log the exact validation errors
+        if (error.response.status === 422 && error.response.data?.detail) {
+          console.error('Validation errors:', error.response.data.detail)
+        }
+      }
+      
+      // Handle validation errors from backend
+      if (error.response?.status === 422) {
+        const errorDetail = error.response.data?.detail
+        
+        if (Array.isArray(errorDetail)) {
+          // Pydantic validation errors
+          console.log('Processing Pydantic validation errors:', errorDetail)
+          
+          errorDetail.forEach((err, index) => {
+            console.log(`Error ${index}:`, err)
+            
+            // Extract field name from location array
+            const field = err.loc && err.loc.length > 0 ? err.loc[err.loc.length - 1] : null
+            const message = err.msg || err.message || 'Invalid value'
+            
+            console.log(`Field: ${field}, Message: ${message}`)
+            
+            if (field && typeof field === 'string') {
+              setError(field, { 
+                type: 'server', 
+                message: message 
+              })
+            } else {
+              // If we can't map to a specific field, show a general error
+              toast.error(`Validation error: ${message}`)
+            }
+          })
+          
+          toast.error('Please check the form for errors')
+          
+        } else if (typeof errorDetail === 'string') {
+          console.log('String error detail:', errorDetail)
+          toast.error(errorDetail)
+        } else {
+          console.log('Unknown error format:', errorDetail)
+          toast.error('Validation error occurred')
+        }
+      } else {
+        const errorMessage = error.response?.data?.detail || 'Failed to save child profile'
+        toast.error(errorMessage)
+      }
     } finally {
       setIsSubmitting(false)
     }
@@ -83,12 +195,19 @@ const Children = () => {
     setShowForm(true)
     
     // Populate form with child data
-    Object.keys(child).forEach(key => {
-      if (key === 'interests') {
-        setValue('interests', child.interests || [])
-      } else {
-        setValue(key, child[key])
-      }
+    const formData = {
+      nickname: child.nickname || '',
+      age_group: child.age_group,
+      learning_level: child.learning_level || 'beginner',
+      interests: child.interests || [],
+      preferred_language: child.preferred_language || '',
+      content_difficulty: child.content_difficulty || 'age_appropriate',
+      avatar_id: child.avatar_id || 1
+    }
+    
+    // Set each field individually
+    Object.keys(formData).forEach(key => {
+      setValue(key, formData[key])
     })
   }
 
@@ -102,6 +221,7 @@ const Children = () => {
       toast.success('Child profile deleted successfully!')
       await loadChildren()
     } catch (error) {
+      console.error('Delete child error:', error)
       toast.error('Failed to delete child profile')
     }
   }
@@ -109,7 +229,16 @@ const Children = () => {
   const resetForm = () => {
     setShowForm(false)
     setEditingChild(null)
-    reset()
+    reset({
+      nickname: '',
+      age_group: 6,
+      learning_level: 'beginner',
+      interests: [],
+      preferred_language: '',
+      content_difficulty: 'age_appropriate',
+      avatar_id: 1
+    })
+    clearErrors()
   }
 
   const availableInterests = [
@@ -133,12 +262,26 @@ const Children = () => {
   ]
 
   const toggleInterest = (interestId) => {
-    const currentInterests = watchedInterests
+    const currentInterests = watchedInterests || []
     const newInterests = currentInterests.includes(interestId)
       ? currentInterests.filter(id => id !== interestId)
       : [...currentInterests, interestId]
     
     setValue('interests', newInterests)
+    clearErrors('interests') // Clear interest errors when changing
+  }
+
+  // Helper function to safely render error messages
+  const renderErrorMessage = (error) => {
+    if (!error) return null
+    
+    if (typeof error.message === 'string') {
+      return error.message
+    } else if (typeof error === 'string') {
+      return error
+    } else {
+      return 'Invalid input'
+    }
   }
 
   const ChildCard = ({ child }) => (
@@ -156,7 +299,7 @@ const Children = () => {
               Age {child.age_group} • {child.learning_level}
             </p>
             <p className="text-xs text-gray-400">
-              {child.content_count} content pieces created
+              {child.content_count || 0} content pieces created
             </p>
           </div>
         </div>
@@ -208,11 +351,13 @@ const Children = () => {
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4 pt-4 border-t border-gray-100">
         <div className="text-center">
-          <p className="text-lg font-semibold text-gray-900">{child.content_count}</p>
+          <p className="text-lg font-semibold text-gray-900">{child.content_count || 0}</p>
           <p className="text-xs text-gray-500">Content</p>
         </div>
         <div className="text-center">
-          <p className="text-lg font-semibold text-gray-900">{child.preferred_language?.toUpperCase()}</p>
+          <p className="text-lg font-semibold text-gray-900">
+            {(child.preferred_language || 'AR').toUpperCase()}
+          </p>
           <p className="text-xs text-gray-500">Language</p>
         </div>
         <div className="text-center">
@@ -289,11 +434,15 @@ const Children = () => {
                         errors.nickname ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''
                       }`}
                       placeholder={isRTL() ? 'اسم الطفل' : "Child's nickname"}
-                      {...register('nickname', { required: 'Nickname is required' })}
+                      {...register('nickname', { 
+                        required: 'Nickname is required',
+                        minLength: { value: 1, message: 'Nickname cannot be empty' },
+                        maxLength: { value: 50, message: 'Nickname too long' }
+                      })}
                     />
                     {errors.nickname && (
                       <p className={`mt-1 text-sm text-red-600 ${isRTL() ? 'font-cairo text-right' : ''}`}>
-                        {errors.nickname.message}
+                        {renderErrorMessage(errors.nickname)}
                       </p>
                     )}
                   </div>
@@ -303,8 +452,14 @@ const Children = () => {
                       Age *
                     </label>
                     <select
-                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${isRTL() ? 'text-right font-cairo' : ''}`}
-                      {...register('age_group', { required: 'Age is required' })}
+                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${isRTL() ? 'text-right font-cairo' : ''} ${
+                        errors.age_group ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''
+                      }`}
+                      {...register('age_group', { 
+                        required: 'Age is required',
+                        min: { value: 2, message: 'Age must be at least 2' },
+                        max: { value: 12, message: 'Age must be at most 12' }
+                      })}
                     >
                       <option value="">Select age</option>
                       {[...Array(11)].map((_, i) => (
@@ -315,7 +470,7 @@ const Children = () => {
                     </select>
                     {errors.age_group && (
                       <p className={`mt-1 text-sm text-red-600 ${isRTL() ? 'font-cairo text-right' : ''}`}>
-                        {errors.age_group.message}
+                        {renderErrorMessage(errors.age_group)}
                       </p>
                     )}
                   </div>
@@ -333,7 +488,7 @@ const Children = () => {
                         type="button"
                         onClick={() => setValue('avatar_id', index + 1)}
                         className={`w-10 h-10 rounded-full border-2 flex items-center justify-center text-lg transition-all duration-200 ${
-                          watch('avatar_id') === index + 1
+                          watchedAvatarId === index + 1
                             ? 'border-blue-500 bg-blue-50 shadow-md'
                             : 'border-gray-200 hover:border-gray-300'
                         }`}
@@ -403,7 +558,12 @@ const Children = () => {
                       </button>
                     ))}
                   </div>
-                  <input type="hidden" {...register('interests')} value={JSON.stringify(watchedInterests)} />
+                  <input type="hidden" {...register('interests')} />
+                  {errors.interests && (
+                    <p className={`mt-1 text-sm text-red-600 ${isRTL() ? 'font-cairo text-right' : ''}`}>
+                      {renderErrorMessage(errors.interests)}
+                    </p>
+                  )}
                 </div>
 
                 {/* Content Difficulty */}

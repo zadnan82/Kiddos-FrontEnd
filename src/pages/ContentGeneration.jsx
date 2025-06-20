@@ -15,10 +15,10 @@ import {
   Clock,
   RefreshCw
 } from 'lucide-react'
-import toast from 'react-hot-toast' 
-// @ts-nocheck
+import toast from 'react-hot-toast'
+
 import { useLanguageStore } from '../stores/languageStore'
-import { useAuthStore } from '../stores/authstore'
+import { useAuthStore } from '../stores/authStore' // FIXED: Added missing import
 import { contentAPI, childrenAPI } from '../services/api'
 import Button from '../components/ui/Button'
 import LoadingSpinner from '../components/LoadingSpinner'
@@ -35,6 +35,8 @@ const ContentGeneration = () => {
   const [generatedContent, setGeneratedContent] = useState(null)
   const [sessionId, setSessionId] = useState(null)
   const [step, setStep] = useState('form') // form, generating, review, complete
+  const [pollAttempts, setPollAttempts] = useState(0) // FIXED: Track polling attempts
+  const [maxPollAttempts] = useState(60) // FIXED: Maximum 2 minutes of polling
 
   const {
     register,
@@ -59,15 +61,23 @@ const ContentGeneration = () => {
     loadChildren()
   }, [])
 
+  // FIXED: Better polling logic with proper cleanup
   useEffect(() => {
     let interval
-    if (sessionId && isGenerating) {
-      interval = setInterval(checkGenerationStatus, 2000)
+    if (sessionId && isGenerating && step === 'generating') {
+      console.log('Starting polling for session:', sessionId)
+      interval = setInterval(() => {
+        checkGenerationStatus()
+      }, 3000) // FIXED: Increased to 3 seconds to reduce load
     }
+    
     return () => {
-      if (interval) clearInterval(interval)
+      if (interval) {
+        console.log('Cleaning up polling interval')
+        clearInterval(interval)
+      }
     }
-  }, [sessionId, isGenerating])
+  }, [sessionId, isGenerating, step])
 
   const loadChildren = async () => {
     try {
@@ -75,91 +85,152 @@ const ContentGeneration = () => {
       setChildren(response.data)
     } catch (error) {
       console.error('Failed to load children:', error)
+      // Don't show error toast for this as it's not critical
     }
   }
 
   const checkGenerationStatus = async () => {
-    if (!sessionId) return
+    if (!sessionId) {
+      console.warn('No session ID for status check')
+      return
+    }
+
+    console.log(`Checking status for session ${sessionId}, attempt ${pollAttempts + 1}`)
+
+    // FIXED: Stop polling after max attempts
+    if (pollAttempts >= maxPollAttempts) {
+      console.error('Max polling attempts reached')
+      setIsGenerating(false)
+      setStep('form')
+      setPollAttempts(0)
+      toast.error('Content generation timed out. Please try again.')
+      return
+    }
 
     try {
       const response = await contentAPI.getStatus(sessionId)
       const status = response.data
 
+      console.log('Status response:', status)
       setGenerationStatus(status)
+      
+      // FIXED: Increment counter AFTER successful API call
+      setPollAttempts(prev => {
+        const newCount = prev + 1
+        console.log(`Poll attempt ${newCount} of ${maxPollAttempts}`)
+        return newCount
+      })
 
       if (status.status === 'completed' && status.content) {
+        console.log('Content generation completed successfully')
         setGeneratedContent(status.content)
         setIsGenerating(false)
         setStep('review')
+        setPollAttempts(0) // Reset counter
       } else if (status.status === 'failed') {
+        console.error('Content generation failed:', status.error_message)
         setIsGenerating(false)
-        toast.error(status.error_message || 'Content generation failed')
         setStep('form')
+        setPollAttempts(0) // Reset counter
+        toast.error(status.error_message || 'Content generation failed')
+      } else if (status.status === 'processing') {
+        console.log('Content still processing...')
+        // Continue polling
+      } else {
+        console.log('Status:', status.status, 'continuing to poll...')
+        // Continue polling for pending status
       }
     } catch (error) {
       console.error('Failed to check status:', error)
+      
+      // FIXED: Increment counter even on error
+      setPollAttempts(prev => {
+        const newCount = prev + 1
+        console.log(`Poll error attempt ${newCount}`)
+        
+        // Stop polling after multiple failures
+        if (newCount >= 5) {
+          console.error('Too many status check failures, stopping polling')
+          setIsGenerating(false)
+          setStep('form')
+          toast.error('Failed to check generation status. Please try again.')
+          return 0 // Reset counter
+        }
+        
+        return newCount
+      })
     }
   }
 
   const onSubmit = async (data) => {
-  // Add this console.log to see what data is being sent
-  console.log('Form data being submitted:', data)
-  
-  if (user?.credits < getRequiredCredits(data.content_type)) {
-    toast.error('Insufficient credits for this content type')
-    navigate('/credits')
-    return
-  }
+    console.log('Form data being submitted:', data)
+    
+    if (user?.credits < getRequiredCredits(data.content_type)) {
+      toast.error('Insufficient credits for this content type')
+      navigate('/credits')
+      return
+    }
 
-  try {
-    setIsGenerating(true)
-    setStep('generating')
-    
-    // Log the exact payload
-    console.log('Sending to API:', {
-      ...data,
-      user_id: user?.id, // Make sure user ID is included if required
-    })
-    
-    const response = await contentAPI.generate(data)
-    setSessionId(response.data.session_id)
-    
-    toast.success('Content generation started!')
-  } catch (error) {
-    setIsGenerating(false)
-    setStep('form')
-    
-    // Log the full error details
-    console.error('API Error:', error)
-    console.error('Error response:', error.response?.data)
-    console.error('Error status:', error.response?.status)
-    
-    toast.error(error.response?.data?.detail || 'Failed to start generation')
-  }
-}
-
-const debugRateLimit = async () => {
-  try {
-    // Make a test API call to see current rate limit status
-    const response = await fetch('/api/debug/rate-limit', {
-      headers: {
-        'Authorization': `Bearer ${user?.token}`,
-        'Content-Type': 'application/json'
+    try {
+      setIsGenerating(true)
+      setStep('generating')
+      setPollAttempts(0) // FIXED: Reset counter
+      
+      console.log('Sending to API:', data)
+      const response = await contentAPI.generate(data)
+      const newSessionId = response.data.session_id
+      
+      console.log('Generation started, session ID:', newSessionId)
+      setSessionId(newSessionId)
+      
+      toast.success('Content generation started!')
+    } catch (error) {
+      console.error('API Error:', error)
+      console.error('Error response:', error.response?.data)
+      console.error('Error status:', error.response?.status)
+      
+      setIsGenerating(false)
+      setStep('form')
+      setPollAttempts(0) // FIXED: Reset counter
+      
+      // FIXED: Better error handling
+      if (error.response?.status === 429) {
+        const retryAfter = error.response?.headers['retry-after'] || '60'
+        toast.error(`Rate limit exceeded. Please wait ${retryAfter} seconds before trying again.`)
+      } else {
+        toast.error(error.response?.data?.detail || 'Failed to start generation')
       }
-    })
-    
-    const data = await response.json()
-    console.log('Rate Limit Debug Info:', data)
-    
-    // Also check if we can see the error headers
-    console.log('Response Headers:', Object.fromEntries(response.headers.entries()))
-    
-  } catch (error) {
-    console.error('Debug request failed:', error)
+    }
   }
-}
+
+  // FIXED: Debug function to check rate limits
+  const debugRateLimit = async () => {
+    try {
+      // Check current user's rate limit status
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/user/limits`, {
+        headers: {
+          'Authorization': `Bearer ${user?.token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        console.log('Rate Limit Info:', data)
+        toast.success(`Rate limits checked - see console for details`)
+      } else {
+        console.error('Rate limit check failed:', response.status, response.statusText)
+        toast.error(`Rate limit check failed: ${response.status}`)
+      }
+    } catch (error) {
+      console.error('Debug request failed:', error)
+      toast.error('Debug request failed')
+    }
+  }
 
   const handleApprove = async (approved, feedback = '') => {
+    if (!sessionId) return
+    
     try {
       await contentAPI.approve(sessionId, { approved, feedback })
       
@@ -169,20 +240,29 @@ const debugRateLimit = async () => {
       } else {
         toast.success('Content rejected. You can regenerate with feedback.')
         setStep('form')
+        // Reset state for new generation
+        setSessionId(null)
+        setGeneratedContent(null)
+        setGenerationStatus(null)
       }
     } catch (error) {
+      console.error('Approve error:', error)
       toast.error('Failed to process approval')
     }
   }
 
   const handleRegenerate = async (feedback) => {
+    if (!sessionId) return
+    
     try {
       setIsGenerating(true)
       setStep('generating')
+      setPollAttempts(0) // Reset counter
       
       await contentAPI.regenerate(sessionId, { feedback })
       toast.success('Regenerating content with your feedback...')
     } catch (error) {
+      console.error('Regenerate error:', error)
       setIsGenerating(false)
       setStep('review')
       toast.error(error.response?.data?.detail || 'Failed to regenerate')
@@ -300,6 +380,25 @@ const debugRateLimit = async () => {
                   />
                 </div>
               )}
+              
+              <div className="text-sm text-gray-500">
+                Attempt {pollAttempts} of {maxPollAttempts}
+              </div>
+              
+              {/* FIXED: Add cancel button */}
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setIsGenerating(false)
+                  setStep('form')
+                  setSessionId(null)
+                  setPollAttempts(0)
+                  toast.info('Content generation cancelled')
+                }}
+                className="mt-4"
+              >
+                Cancel Generation
+              </Button>
             </div>
           </div>
         </div>
@@ -389,6 +488,8 @@ const debugRateLimit = async () => {
                   setStep('form')
                   setGeneratedContent(null)
                   setSessionId(null)
+                  setGenerationStatus(null)
+                  setPollAttempts(0)
                 }}
                 className="flex-1"
               >
@@ -617,28 +718,33 @@ const debugRateLimit = async () => {
                 </p>
               </div>
               
-              <Button
-                type="submit"
-                size="lg"
-                disabled={isGenerating || (user?.credits || 0) < getRequiredCredits(watchedValues.content_type)}
-                loading={isGenerating}
-                icon={<Wand2 className="w-5 h-5" />}
-                className="px-8"
-              >
-                Generate Content
-              </Button>
+              <div className="flex space-x-4 rtl:space-x-reverse">
+                {/* FIXED: Debug button for development */}
+                {import.meta.env.DEV && (
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={debugRateLimit}
+                  >
+                    Debug Limits
+                  </Button>
+                )}
+                
+                <Button
+                  type="submit"
+                  size="lg"
+                  disabled={isGenerating || (user?.credits || 0) < getRequiredCredits(watchedValues.content_type)}
+                  loading={isGenerating}
+                  icon={<Wand2 className="w-5 h-5" />}
+                  className="px-8"
+                >
+                  Generate Content
+                </Button>
+              </div>
             </div>
           </div>
         </form>
       </div>
-      <Button 
-  type="button" 
-  variant="outline" 
-  onClick={debugRateLimit}
-  className="mb-4"
->
-  Debug Rate Limits
-</Button>
     </div>
   )
 }

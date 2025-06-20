@@ -18,14 +18,17 @@ import {
   Save,
   AlertTriangle
 } from 'lucide-react'
-import toast from 'react-hot-toast' 
+import toast from 'react-hot-toast'
+
+// FIXED: Added missing import
+import { useAuthStore } from '../stores/authstore'
 import { useLanguageStore } from '../stores/languageStore'
 import { userAPI } from '../services/api'
 import Button from '../components/ui/Button'
 import LoadingSpinner from '../components/LoadingSpinner'
 
 const Profile = () => {
-  const { user, updateUser } = useAuthStore()
+  const { user, updateUser } = useAuthStore() // FIXED: Now properly imported
   const { t, isRTL, availableLanguages, setLanguage } = useLanguageStore()
   const [isEditing, setIsEditing] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
@@ -75,6 +78,7 @@ const Profile = () => {
       toast.success('Profile updated successfully!')
       setIsEditing(false)
     } catch (error) {
+      console.error('Profile update error:', error)
       toast.error(error.response?.data?.detail || 'Failed to update profile')
     } finally {
       setIsLoading(false)
@@ -89,6 +93,7 @@ const Profile = () => {
       })
       toast.success('Data export request submitted. You will receive an email when ready.')
     } catch (error) {
+      console.error('Export data error:', error)
       toast.error('Failed to request data export')
     }
   }
@@ -110,6 +115,7 @@ const Profile = () => {
       })
       toast.success('Account deletion request submitted. Your account will be deleted within 30 days.')
     } catch (error) {
+      console.error('Delete account error:', error)
       toast.error('Failed to request account deletion')
     }
   }
@@ -144,6 +150,14 @@ const Profile = () => {
       <span>{tab.label}</span>
     </button>
   )
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <LoadingSpinner size="lg" text="Loading profile..." />
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
