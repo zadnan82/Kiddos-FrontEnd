@@ -23,6 +23,8 @@ import { useLanguageStore } from '../stores/languageStore'
 import { contentAPI } from '../services/api'
 import Button from '../components/ui/Button'
 import LoadingSpinner from '../components/LoadingSpinner'
+import InteractiveQuiz from './InteractiveQuiz'
+import InteractiveWorksheet from './InteractiveWorksheet'
 
 const ContentHistory = () => {
   const { t, isRTL } = useLanguageStore()
@@ -49,54 +51,36 @@ const ContentHistory = () => {
   }, [filters, pagination])
 
   const loadContentHistory = async () => {
-    try {
-      setIsLoading(true)
-      
-      // Build query parameters
-      const params = new URLSearchParams()
-      params.append('page', pagination.page)
-      params.append('per_page', pagination.per_page)
-      
-      // Add filters
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value && value !== '') {
-          params.append(key, value)
-        }
-      })
-      
-      console.log('Loading content history with params:', params.toString())
-      const response = await contentAPI.getHistory(params)
-      
-      console.log('Content history API response:', response.data)
-      
-      if (response.data) {
-        const contentArray = Array.isArray(response.data) ? response.data : []
-        
-        // DEBUG: Log each content item's status
-        contentArray.forEach((content, index) => {
-          console.log(`Content ${index}:`, {
-            session_id: content.session_id,
-            title: content.title,
-            topic: content.topic,
-            status: content.status,
-            parent_approved: content.parent_approved,
-            created_at: content.created_at
-          })
-        })
-        
-        setContentHistory(contentArray)
-      } else {
-        setContentHistory([])
-      }
-    } catch (error) {
-      console.error('Load history error:', error)
-      console.error('Error response:', error.response?.data)
-      toast.error('Failed to load content history')
-      setContentHistory([])
-    } finally {
-      setIsLoading(false)
+  try {
+    setIsLoading(true);
+    
+    const response = await contentAPI.getHistory({
+      page: pagination.page,
+      per_page: pagination.per_page,
+      ...filters
+    });
+    
+    if (response.data) {
+      setContentHistory(response.data);
+    } else {
+      setContentHistory([]);
+      toast.error('No content history found');
     }
+  } catch (error) {
+    console.error('Load history error:', error);
+    
+    // Handle CORS errors specifically
+    if (error.code === 'ERR_NETWORK' || error.message.includes('CORS')) {
+      toast.error('Connection error. Please check your network and try again.');
+    } else {
+      toast.error(error.response?.data?.detail || 'Failed to load content history');
+    }
+    
+    setContentHistory([]);
+  } finally {
+    setIsLoading(false);
   }
+};
 
   // Add this test function to your ContentHistory component
 
@@ -154,65 +138,143 @@ const checkEnumValues = () => {
 }
 
  const handlePreview = async (sessionId) => {
+  try {
+    console.log('Loading preview for session:', sessionId)
+    
+    // Try direct content endpoint first
     try {
-      console.log('Loading preview for session:', sessionId)
-      
-      const response = await contentAPI.getStatus(sessionId)
-      console.log('Status API response:', response.data)
-      
-      if (response.data?.content) {
-        console.log('✅ Content found in response:', response.data.content)
-        setSelectedContent(response.data.content)
+      const contentResponse = await contentAPI.getContent(sessionId)
+      if (contentResponse.data) {
+        console.log('✅ Content loaded from direct endpoint:', contentResponse.data)
+        console.log('📊 Content structure:', {
+          hasTitle: !!contentResponse.data.title,
+          hasContent: !!contentResponse.data.content,
+          hasQuestions: !!(contentResponse.data.questions && contentResponse.data.questions.length > 0),
+          contentType: contentResponse.data.content_type,
+          questionsCount: contentResponse.data.questions?.length || 0
+        })
+        
+        setSelectedContent(contentResponse.data)
         setShowPreview(true)
-      } else {
-        // ENHANCED: Better handling of different statuses
-        const status = response.data?.status
-        const progress = response.data?.progress_percentage || 0
-        
-        console.log('❌ No content in response. Status:', status, 'Progress:', progress)
-        
-        // More specific messages based on status
-        if (status === 'pending') {
-          toast.error('Content is still being generated. Please wait...')
-        } else if (status === 'processing') {
-          toast.error(`Content generation in progress (${progress}%). Please wait...`)
-        } else if (status === 'failed') {
-          const errorMsg = response.data.error_message || 'Content generation failed'
-          toast.error(`Content generation failed: ${errorMsg}`)
-        } else if (status === 'completed' || status === 'approved') {
-          // This should not happen - content should be available
-          console.error('❌ Content should be available but is missing')
-          toast.error('Content is ready but could not be loaded. Please try again or contact support.')
-        } else {
-          toast.error(`Content not available (status: ${status})`)
-        }
+        return
       }
-    } catch (error) {
-      console.error('Preview error:', error)
-      console.error('Preview error response:', error.response?.data)
-      
-      if (error.response?.status === 404) {
-        toast.error('Content not found or you do not have permission to view it')
+    } catch (contentError) {
+      console.log('Direct content endpoint failed, trying status endpoint:', contentError)
+    }
+
+    // Fall back to status endpoint
+    const statusResponse = await contentAPI.getStatus(sessionId)
+    console.log('Status response:', statusResponse.data)
+
+    if (statusResponse.data?.content) {
+      console.log('✅ Content found via status endpoint:', statusResponse.data.content)
+      setSelectedContent(statusResponse.data.content)
+      setShowPreview(true)
+    } else {
+      const status = statusResponse.data?.status
+      if (status === 'pending' || status === 'processing') {
+        toast.error('Content is still being generated. Please wait...')
+      } else if (status === 'failed') {
+        toast.error(statusResponse.data?.error_message || 'Content generation failed')
       } else {
-        toast.error(error.response?.data?.detail || 'Failed to load content preview')
+        toast.error(`Content not available (status: ${status})`)
       }
     }
+  } catch (error) {
+    console.error('Preview error:', error)
+    toast.error(error.response?.data?.detail || 'Failed to load content preview')
   }
+}
+
+
+// Add this inside your component
+const debugContentItem = async (sessionId) => {
+  try {
+    console.log('Debugging content item:', sessionId)
+    
+    // Check history endpoint
+    const historyResponse = await contentAPI.getHistory(new URLSearchParams())
+    console.log('History response:', historyResponse.data)
+    
+    // Check status endpoint
+    const statusResponse = await contentAPI.getStatus(sessionId)
+    console.log('Status response:', statusResponse.data)
+    
+    // Check debug endpoint
+    const debugResponse = await contentAPI.get(`/debug/${sessionId}`)
+    console.log('Debug response:', debugResponse.data)
+    
+    // Check content endpoint
+    try {
+      const contentResponse = await contentAPI.get(`/content/${sessionId}`)
+      console.log('Content endpoint response:', contentResponse.data)
+    } catch (contentError) {
+      console.log('Content endpoint error:', contentError.response?.data)
+    }
+    
+    toast.success('Debug information logged to console')
+  } catch (error) {
+    console.error('Debug failed:', error)
+    toast.error('Debug failed - check console')
+  }
+}
+
  
   const canPreviewContent = (content) => {
-    const canPreview = content.session_id && 
-                      !['pending', 'processing'].includes(content.status)
-    
-    console.log('Checking if can preview content:', {
-      status: content.status,
-      parent_approved: content.parent_approved,
-      session_id: content.session_id,
-      canPreview: canPreview
-    })
-    
-    return canPreview
+  // Normalize status to lowercase
+  const status = content.status?.toLowerCase()
+  
+  // Allow preview for these statuses
+  const previewableStatuses = ['completed', 'approved']
+  
+  return content.session_id && previewableStatuses.includes(status)
+}
+
+const DebugButton = ({ sessionId }) => {
+  const debugContent = async () => {
+    try {
+      console.group('Debugging Content Session')
+      
+      // 1. Check status
+      console.log('Checking status...')
+      const status = await contentAPI.getStatus(sessionId)
+      console.log('Status:', status.data)
+      
+      // 2. Try direct content
+      console.log('Trying direct content...')
+      try {
+        const content = await contentAPI.getContent(sessionId)
+        console.log('Direct content:', content.data)
+      } catch (contentError) {
+        console.log('Direct content failed:', contentError.response?.data)
+      }
+      
+      // 3. Check debug info
+      console.log('Getting debug info...')
+      try {
+        const debug = await contentAPI.getDebug(sessionId)
+        console.log('Debug info:', debug.data)
+      } catch (debugError) {
+        console.log('Debug failed:', debugError.response?.data)
+      }
+      
+      console.groupEnd()
+      toast.success('Debug info logged to console')
+    } catch (error) {
+      console.error('Debug failed:', error)
+      toast.error('Debug failed - check console')
+    }
   }
 
+  return (
+    <button 
+      onClick={debugContent}
+      className="px-3 py-1 text-sm bg-yellow-100 text-yellow-800 rounded hover:bg-yellow-200"
+    >
+      Debug
+    </button>
+  )
+}
   // UPDATED: Better status text handling
   const getStatusText = (status, parentApproved) => {
     if (status === 'completed' && parentApproved === true) {
@@ -436,15 +498,62 @@ const checkEnumValues = () => {
     const IconComponent = icons[type] || BookOpen
     return <IconComponent className="w-5 h-5" />
   }
- 
-  const PreviewModal = () => (
+ // In your PreviewModal component, add:
+useEffect(() => {
+  if (selectedContent) {
+    console.log('Preview content raw:', selectedContent)
+    console.log('Preview content keys:', Object.keys(selectedContent))
+  }
+}, [selectedContent])
+
+ const PreviewModal = () => {
+  const [previewMode, setPreviewMode] = useState('interactive') // 'interactive' or 'static'
+  
+  if (!selectedContent) return null
+
+  const isQuiz = selectedContent.content_type === 'quiz' && selectedContent.questions && selectedContent.questions.length > 0
+  const isWorksheet = selectedContent.content_type === 'worksheet' && selectedContent.questions && selectedContent.questions.length > 0
+  const canBeInteractive = isQuiz || isWorksheet
+
+  return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[95vh] overflow-hidden">
+        
+        {/* Header with Mode Toggle */}
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4">
           <div className="flex items-center justify-between">
-            <h2 className={`text-xl font-semibold text-gray-900 ${isRTL() ? 'font-cairo' : ''}`}>
-              Content Preview
-            </h2>
+            <div className="flex items-center space-x-4">
+              <h2 className={`text-xl font-semibold text-gray-900 ${isRTL() ? 'font-cairo' : ''}`}>
+                Content Preview
+              </h2>
+              
+              {/* Mode Toggle */}
+              {canBeInteractive && (
+                <div className="flex items-center space-x-2 bg-gray-100 rounded-lg p-1">
+                  <button
+                    onClick={() => setPreviewMode('interactive')}
+                    className={`px-3 py-1 rounded text-sm font-medium transition-all ${
+                      previewMode === 'interactive'
+                        ? 'bg-blue-500 text-white shadow-sm'
+                        : 'text-gray-600 hover:text-gray-800'
+                    }`}
+                  >
+                    🎮 Interactive
+                  </button>
+                  <button
+                    onClick={() => setPreviewMode('static')}
+                    className={`px-3 py-1 rounded text-sm font-medium transition-all ${
+                      previewMode === 'static'
+                        ? 'bg-blue-500 text-white shadow-sm'
+                        : 'text-gray-600 hover:text-gray-800'
+                    }`}
+                  >
+                    📄 Review
+                  </button>
+                </div>
+              )}
+            </div>
+            
             <button
               onClick={() => setShowPreview(false)}
               className="p-2 hover:bg-gray-100 rounded-full transition-colors duration-200"
@@ -454,9 +563,39 @@ const checkEnumValues = () => {
           </div>
         </div>
 
-        <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
-          {selectedContent && (
-            <>
+        {/* Content Area */}
+        <div className="overflow-y-auto max-h-[calc(95vh-80px)]">
+          {/* Interactive Mode */}
+          {canBeInteractive && previewMode === 'interactive' && (
+            <div className="p-4">
+              {isQuiz && (
+                <InteractiveQuiz
+                  quizData={selectedContent}
+                  onComplete={(results) => {
+                    console.log('Quiz completed with results:', results)
+                    toast.success(`Great! You scored ${results.percentage}% on the quiz!`)
+                  }}
+                  onBack={() => setPreviewMode('static')}
+                />
+              )}
+              
+              {isWorksheet && (
+                <InteractiveWorksheet 
+                  worksheetData={selectedContent}
+                  onComplete={(results) => {
+                    console.log('Worksheet completed with results:', results)
+                    toast.success(`Excellent! You completed ${results.percentage}% of the worksheet!`)
+                  }}
+                  onBack={() => setPreviewMode('static')}
+                />
+              )}
+            </div>
+          )}
+
+          {/* Static Mode - Your existing detailed preview */}
+          {(!canBeInteractive || previewMode === 'static') && (
+            <div className="p-6">
+              {/* Header */}
               <div className="mb-6">
                 <h3 className={`text-2xl font-bold text-gray-900 mb-4 ${isRTL() ? 'font-cairo' : ''}`}>
                   {selectedContent.title}
@@ -475,35 +614,161 @@ const checkEnumValues = () => {
                   {selectedContent.credits_used && (
                     <span>{selectedContent.credits_used} credits used</span>
                   )}
+                  {selectedContent.generation_time && (
+                    <span>Generated in {selectedContent.generation_time}s</span>
+                  )}
                 </div>
               </div>
 
-              <div className={`prose max-w-none ${isRTL() ? 'font-cairo' : ''}`}>
-                <div className="whitespace-pre-wrap text-gray-700 leading-relaxed">
-                  {selectedContent.content}
+              {/* Learning Objectives */}
+              {selectedContent.learning_objectives && selectedContent.learning_objectives.length > 0 && (
+                <div className="mb-6">
+                  <h4 className="text-lg font-semibold text-gray-900 mb-3 flex items-center">
+                    🎯 Learning Objectives
+                  </h4>
+                  <ul className="space-y-2">
+                    {selectedContent.learning_objectives.map((objective, index) => (
+                      <li key={index} className="flex items-start space-x-2">
+                        <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
+                        <span className="text-gray-700">{objective}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Main Content */}
+              <div className="mb-6">
+                <h4 className="text-lg font-semibold text-gray-900 mb-3 flex items-center">
+                  📄 Content
+                </h4>
+                <div className={`prose max-w-none ${isRTL() ? 'font-cairo' : ''}`}>
+                  <div className="whitespace-pre-wrap text-gray-700 leading-relaxed bg-gray-50 p-4 rounded-lg">
+                    {selectedContent.content}
+                  </div>
                 </div>
               </div>
 
-              <div className="mt-8 flex justify-end space-x-4 rtl:space-x-reverse">
+              {/* Questions - Enhanced display */}
+              {selectedContent.questions && selectedContent.questions.length > 0 && (
+                <div className="mb-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="text-lg font-semibold text-gray-900 flex items-center">
+                      📝 Questions ({selectedContent.questions.length})
+                    </h4>
+                    {canBeInteractive && (
+                      <Button
+                        onClick={() => setPreviewMode('interactive')}
+                        size="sm"
+                        icon={<Activity className="w-4 h-4" />}
+                      >
+                        Try Interactive Mode
+                      </Button>
+                    )}
+                  </div>
+                  
+                  <div className="space-y-4">
+                    {selectedContent.questions.map((question, index) => (
+                      <div key={index} className="border border-gray-200 rounded-lg p-4 bg-white shadow-sm">
+                        <p className="font-medium text-gray-900 mb-3">
+                          <span className="text-blue-600 font-bold">Q{index + 1}:</span> {question.question}
+                        </p>
+                        
+                        {/* Multiple Choice Display */}
+                        {question.type === 'multiple_choice' && question.options && (
+                          <div className="ml-4 mb-3">
+                            <p className="text-sm text-gray-600 mb-2">Options:</p>
+                            <div className="grid grid-cols-1 gap-2">
+                              {question.options.map((option, optIndex) => (
+                                <div 
+                                  key={optIndex} 
+                                  className={`p-2 rounded border ${
+                                    option === question.answer 
+                                      ? 'bg-green-50 border-green-200 text-green-800' 
+                                      : 'bg-gray-50 border-gray-200 text-gray-700'
+                                  }`}
+                                >
+                                  <span className="font-medium">{String.fromCharCode(65 + optIndex)}.</span> {option}
+                                  {option === question.answer && (
+                                    <span className="ml-2 text-green-600 font-bold">✓ Correct</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Matching Questions Display */}
+                        {question.type === 'matching' && question.options && (
+                          <div className="ml-4 mb-3">
+                            <p className="text-sm text-gray-600 mb-2">Match these pairs:</p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {question.options.map((option, optIndex) => {
+                                const [baby, parent] = option.split('-')
+                                return (
+                                  <div key={optIndex} className="flex items-center justify-between bg-blue-50 p-3 rounded border border-blue-200">
+                                    <span className="text-blue-700 font-medium">{baby}</span>
+                                    <span className="text-gray-400 mx-2">→</span>
+                                    <span className="text-green-700 font-medium">{parent}</span>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Answer and Explanation */}
+                        <div className="mt-3 pt-3 border-t border-gray-100">
+                          <div className="space-y-2">
+                            <p className="text-green-700 text-sm">
+                              <span className="font-medium">✓ Answer:</span> {question.answer}
+                            </p>
+                            {question.explanation && (
+                              <p className="text-blue-700 text-sm">
+                                <span className="font-medium">💡 Explanation:</span> {question.explanation}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex flex-col sm:flex-row gap-4 pt-6 border-t border-gray-200">
                 <Button
                   variant="outline"
                   onClick={() => setShowPreview(false)}
+                  className="flex-1"
                 >
-                  Close
+                  Close Preview
                 </Button>
                 <Button
                   onClick={() => handleDownload(selectedContent)}
                   icon={<Download className="w-4 h-4" />}
+                  className="flex-1"
                 >
-                  Download
+                  Download Content
                 </Button>
+                {canBeInteractive && previewMode === 'static' && (
+                  <Button
+                    onClick={() => setPreviewMode('interactive')}
+                    icon={<Activity className="w-4 h-4" />}
+                    className="flex-1"
+                  >
+                    Try Interactive
+                  </Button>
+                )}
               </div>
-            </>
+            </div>
           )}
         </div>
       </div>
     </div>
   )
+}
  
 const testContentStatus = async () => {
   try {
@@ -682,6 +947,14 @@ const renderTestButton = () => (
 
         {/* Preview Modal */}
         {showPreview && <PreviewModal />}
+
+        // Add this to your JSX (temporarily)
+<Button
+  onClick={() => debugContentItem(contentHistory[0]?.session_id)}
+  className="mb-4"
+>
+  Debug First Item
+</Button>
       </div>
     </div>
   )
