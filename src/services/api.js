@@ -146,7 +146,7 @@ export const childrenAPI = {
 
 export const contentAPI = {
   generate: (data) => api.post('/content/generate', data),
-  getStatus: (sessionId) => api.get(`/content/status/${sessionId}`),
+  
   approve: (sessionId, data) => api.post(`/content/${sessionId}/approve`, data),
   regenerate: (sessionId, data) => api.post(`/content/${sessionId}/regenerate`, data),
   
@@ -176,6 +176,44 @@ export const contentAPI = {
   deleteContent: (sessionId) => {
     console.log('API: Deleting content session:', sessionId)
     return api.delete(`/content/${sessionId}`)
+  },
+
+  // FIXED: Correct content endpoint path
+  getContent: (sessionId) => {
+    console.log('API: Getting content for session:', sessionId)
+    return api.get(`/content/content/${sessionId}`)
+      .catch(error => {
+        console.error('Direct content fetch failed:', error.response?.status, error.response?.data)
+        // If direct content fails, try getting it via status
+        return api.get(`/content/status/${sessionId}`)
+          .then(response => {
+            if (response.data?.content) {
+              console.log('API: Content found via status endpoint')
+              return { data: response.data.content }
+            }
+            throw new Error('No content available')
+          })
+      })
+  },
+  
+  getDebug: (sessionId) => api.get(`/content/debug/${sessionId}`),
+  
+  // FIXED: Single getStatus function with normalization
+  getStatus: (sessionId) => {
+    console.log('API: Getting status for session:', sessionId)
+    return api.get(`/content/status/${sessionId}`)
+      .then(response => {
+        // Normalize status to lowercase
+        if (response.data?.status) {
+          response.data.status = response.data.status.toLowerCase()
+        }
+        console.log('API: Status response:', response.data)
+        return response
+      })
+      .catch(error => {
+        console.error('Status check failed:', error)
+        throw error
+      })
   },
 }
 

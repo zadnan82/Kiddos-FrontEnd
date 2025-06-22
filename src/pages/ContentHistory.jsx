@@ -23,6 +23,9 @@ import { useLanguageStore } from '../stores/languageStore'
 import { contentAPI } from '../services/api'
 import Button from '../components/ui/Button'
 import LoadingSpinner from '../components/LoadingSpinner'
+import InteractiveQuiz from './InteractiveQuiz'
+import InteractiveWorksheet from './InteractiveWorksheet'
+import { useNavigate } from 'react-router-dom'
 
 const ContentHistory = () => {
   const { t, isRTL } = useLanguageStore()
@@ -43,63 +46,43 @@ const ContentHistory = () => {
   const [selectedContent, setSelectedContent] = useState(null)
   const [showPreview, setShowPreview] = useState(false)
   const [isDeleting, setIsDeleting] = useState(null) // Track which item is being deleted
-
+const navigate = useNavigate()
   useEffect(() => {
     loadContentHistory()
   }, [filters, pagination])
 
   const loadContentHistory = async () => {
-    try {
-      setIsLoading(true)
-      
-      // Build query parameters
-      const params = new URLSearchParams()
-      params.append('page', pagination.page)
-      params.append('per_page', pagination.per_page)
-      
-      // Add filters
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value && value !== '') {
-          params.append(key, value)
-        }
-      })
-      
-      console.log('Loading content history with params:', params.toString())
-      const response = await contentAPI.getHistory(params)
-      
-      console.log('Content history API response:', response.data)
-      
-      if (response.data) {
-        const contentArray = Array.isArray(response.data) ? response.data : []
-        
-        // DEBUG: Log each content item's status
-        contentArray.forEach((content, index) => {
-          console.log(`Content ${index}:`, {
-            session_id: content.session_id,
-            title: content.title,
-            topic: content.topic,
-            status: content.status,
-            parent_approved: content.parent_approved,
-            created_at: content.created_at
-          })
-        })
-        
-        setContentHistory(contentArray)
-      } else {
-        setContentHistory([])
-      }
-    } catch (error) {
-      console.error('Load history error:', error)
-      console.error('Error response:', error.response?.data)
-      toast.error('Failed to load content history')
-      setContentHistory([])
-    } finally {
-      setIsLoading(false)
+  try {
+    setIsLoading(true);
+    
+    const response = await contentAPI.getHistory({
+      page: pagination.page,
+      per_page: pagination.per_page,
+      ...filters
+    });
+    
+    if (response.data) {
+      setContentHistory(response.data);
+    } else {
+      setContentHistory([]);
+      toast.error('No content history found');
     }
+  } catch (error) {
+    console.error('Load history error:', error);
+    
+    // Handle CORS errors specifically
+    if (error.code === 'ERR_NETWORK' || error.message.includes('CORS')) {
+      toast.error('Connection error. Please check your network and try again.');
+    } else {
+      toast.error(error.response?.data?.detail || 'Failed to load content history');
+    }
+    
+    setContentHistory([]);
+  } finally {
+    setIsLoading(false);
   }
-
-  // Add this test function to your ContentHistory component
-
+};
+ 
 const testContentDetails = async () => {
   try {
     const sessionId = '32364375-f6d3-4d81-affd-b371577b2c2c' // Your problem session
@@ -128,248 +111,294 @@ const testContentDetails = async () => {
   }
 }
 
-// Add this button temporarily to your header for testing
-const renderDebugButton = () => (
-  <button
-    onClick={testContentDetails}
-    className="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600"
-    style={{ position: 'fixed', top: '60px', right: '10px', zIndex: 1000 }}
-  >
-    Debug Content
-  </button>
-)
+ // Add these functions to your ContentHistory.jsx component (inside the component, before the return statement):
 
-// Add this to your JSX return statement temporarily
-{/* {renderDebugButton()} */}
-
-// Also add this to check the current database enum values
-const checkEnumValues = () => {
-  console.log('ContentStatus enum should include:')
-  console.log('- PENDING')
-  console.log('- PROCESSING') 
-  console.log('- COMPLETED')
-  console.log('- APPROVED')  // ← This might be missing
-  console.log('- REJECTED')
-  console.log('- FAILED')
+// Status text helper
+const getStatusText = (status, parentApproved) => {
+  if (status === 'completed' && parentApproved === true) {
+    return 'Approved'
+  } else if (status === 'approved') {
+    return 'Approved'
+  } else if (status === 'completed' && parentApproved === false) {
+    return 'Rejected'
+  } else if (status === 'rejected') {
+    return 'Rejected'
+  } else if (status === 'completed' && parentApproved === null) {
+    return 'Pending Review'
+  } else if (status === 'failed') {
+    return 'Failed'
+  } else if (status === 'processing') {
+    return 'Processing'
+  } else if (status === 'pending') {
+    return 'Pending'
+  } else {
+    return status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Unknown'
+  }
 }
 
- const handlePreview = async (sessionId) => {
+// Status icon helper
+const getStatusIcon = (status, parentApproved) => {
+  if (status === 'completed' && parentApproved === true) {
+    return <CheckCircle className="w-5 h-5 text-green-500" />
+  } else if (status === 'approved') {
+    return <CheckCircle className="w-5 h-5 text-green-500" />
+  } else if (status === 'completed' && parentApproved === false) {
+    return <XCircle className="w-5 h-5 text-red-500" />
+  } else if (status === 'rejected') {
+    return <XCircle className="w-5 h-5 text-red-500" />
+  } else if (status === 'completed' && parentApproved === null) {
+    return <Clock className="w-5 h-5 text-yellow-500" />
+  } else if (status === 'failed') {
+    return <XCircle className="w-5 h-5 text-red-500" />
+  } else if (status === 'processing') {
+    return <RefreshCw className="w-5 h-5 text-blue-500 animate-spin" />
+  } else if (status === 'pending') {
+    return <Clock className="w-5 h-5 text-gray-400" />
+  } else {
+    return <Clock className="w-5 h-5 text-gray-400" />
+  }
+}
+
+// Content type icon helper
+const getContentTypeIcon = (type) => {
+  const icons = {
+    story: BookOpen,
+    worksheet: FileText,
+    quiz: HelpCircle,
+    exercise: Activity
+  }
+  const IconComponent = icons[type] || BookOpen
+  return <IconComponent className="w-5 h-5" />
+}
+
+// Can preview content helper
+const canPreviewContent = (content) => {
+  // Normalize status to lowercase
+  const status = content.status?.toLowerCase()
+  
+  // Allow preview for these statuses
+  const previewableStatuses = ['completed', 'approved']
+  
+  return content.session_id && previewableStatuses.includes(status)
+}
+
+// Navigate to preview page
+const handlePreview = (sessionId) => {
+  console.log('Navigating to preview page for session:', sessionId)
+  navigate(`/preview/${sessionId}`)
+}
+ 
+
+
+// Add this inside your component
+const debugContentItem = async (sessionId) => {
+  try {
+    console.log('Debugging content item:', sessionId)
+    
+    // Check history endpoint
+    const historyResponse = await contentAPI.getHistory(new URLSearchParams())
+    console.log('History response:', historyResponse.data)
+    
+    // Check status endpoint
+    const statusResponse = await contentAPI.getStatus(sessionId)
+    console.log('Status response:', statusResponse.data)
+    
+    // Check debug endpoint
+    const debugResponse = await contentAPI.get(`/debug/${sessionId}`)
+    console.log('Debug response:', debugResponse.data)
+    
+    // Check content endpoint
     try {
-      console.log('Loading preview for session:', sessionId)
-      
-      const response = await contentAPI.getStatus(sessionId)
-      console.log('Status API response:', response.data)
-      
-      if (response.data?.content) {
-        console.log('✅ Content found in response:', response.data.content)
-        setSelectedContent(response.data.content)
-        setShowPreview(true)
-      } else {
-        // ENHANCED: Better handling of different statuses
-        const status = response.data?.status
-        const progress = response.data?.progress_percentage || 0
-        
-        console.log('❌ No content in response. Status:', status, 'Progress:', progress)
-        
-        // More specific messages based on status
-        if (status === 'pending') {
-          toast.error('Content is still being generated. Please wait...')
-        } else if (status === 'processing') {
-          toast.error(`Content generation in progress (${progress}%). Please wait...`)
-        } else if (status === 'failed') {
-          const errorMsg = response.data.error_message || 'Content generation failed'
-          toast.error(`Content generation failed: ${errorMsg}`)
-        } else if (status === 'completed' || status === 'approved') {
-          // This should not happen - content should be available
-          console.error('❌ Content should be available but is missing')
-          toast.error('Content is ready but could not be loaded. Please try again or contact support.')
-        } else {
-          toast.error(`Content not available (status: ${status})`)
-        }
-      }
-    } catch (error) {
-      console.error('Preview error:', error)
-      console.error('Preview error response:', error.response?.data)
-      
-      if (error.response?.status === 404) {
-        toast.error('Content not found or you do not have permission to view it')
-      } else {
-        toast.error(error.response?.data?.detail || 'Failed to load content preview')
-      }
+      const contentResponse = await contentAPI.get(`/content/${sessionId}`)
+      console.log('Content endpoint response:', contentResponse.data)
+    } catch (contentError) {
+      console.log('Content endpoint error:', contentError.response?.data)
     }
-  }
- 
-  const canPreviewContent = (content) => {
-    const canPreview = content.session_id && 
-                      !['pending', 'processing'].includes(content.status)
     
-    console.log('Checking if can preview content:', {
-      status: content.status,
-      parent_approved: content.parent_approved,
-      session_id: content.session_id,
-      canPreview: canPreview
-    })
-    
-    return canPreview
+    toast.success('Debug information logged to console')
+  } catch (error) {
+    console.error('Debug failed:', error)
+    toast.error('Debug failed - check console')
   }
+}
 
-  // UPDATED: Better status text handling
-  const getStatusText = (status, parentApproved) => {
-    if (status === 'completed' && parentApproved === true) {
-      return 'Approved'
-    } else if (status === 'approved') {
-      return 'Approved'
-    } else if (status === 'completed' && parentApproved === false) {
-      return 'Rejected'
-    } else if (status === 'rejected') {
-      return 'Rejected'
-    } else if (status === 'completed' && parentApproved === null) {
-      return 'Pending Review'
-    } else if (status === 'failed') {
-      return 'Failed'
-    } else if (status === 'processing') {
-      return 'Processing'
-    } else if (status === 'pending') {
-      return 'Pending'
-    } else {
-      return status.charAt(0).toUpperCase() + status.slice(1)
-    }
-  }
-
-  // UPDATED: Better status icon handling  
-  const getStatusIcon = (status, parentApproved) => {
-    if (status === 'completed' && parentApproved === true) {
-      return <CheckCircle className="w-5 h-5 text-green-500" />
-    } else if (status === 'approved') {
-      return <CheckCircle className="w-5 h-5 text-green-500" />
-    } else if (status === 'completed' && parentApproved === false) {
-      return <XCircle className="w-5 h-5 text-red-500" />
-    } else if (status === 'rejected') {
-      return <XCircle className="w-5 h-5 text-red-500" />
-    } else if (status === 'completed' && parentApproved === null) {
-      return <Clock className="w-5 h-5 text-yellow-500" />
-    } else if (status === 'failed') {
-      return <XCircle className="w-5 h-5 text-red-500" />
-    } else if (status === 'processing') {
-      return <Clock className="w-5 h-5 text-blue-500" />
-    } else {
-      return <Clock className="w-5 h-5 text-gray-400" />
-    }
-  }
  
-  const ContentCard = ({ content }) => {
-    const canPreview = canPreviewContent(content)
-    
-    console.log('Rendering content card:', {
-      session_id: content.session_id,
-      status: content.status,
-      canPreview: canPreview
-    })
-    
-    return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200">
-        <div className="flex items-start justify-between mb-4">
-          <div className="flex items-center space-x-3 rtl:space-x-reverse">
-            <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-600 rounded-lg flex items-center justify-center text-white">
-              {getContentTypeIcon(content.content_type)}
-            </div>
-            <div>
-              <h3 className={`font-semibold text-gray-900 line-clamp-1 ${isRTL() ? 'font-cairo' : ''}`}>
-                {content.title || content.topic}
-              </h3>
-              <p className="text-sm text-gray-500 capitalize">
-                {content.content_type} • Age {content.age_group}
-              </p>
-            </div>
+  
+   
+ 
+ const ContentCard = ({ content }) => {
+  const canPreview = canPreviewContent(content)
+  
+  // Debug what data we have
+  console.log('Content card data:', content)
+  
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200">
+      <div className="flex items-start justify-between mb-4">
+        <div className="flex items-center space-x-3 rtl:space-x-reverse flex-1">
+          <div className="w-12 h-12 bg-gradient-to-br from-blue-400 to-purple-600 rounded-lg flex items-center justify-center text-white flex-shrink-0">
+            {getContentTypeIcon(content.content_type)}
           </div>
-          
-          <div className="flex items-center space-x-1 rtl:space-x-reverse">
-            {getStatusIcon(content.status, content.parent_approved)}
+          <div className="flex-1 min-w-0">
+            <h3 className={`font-semibold text-gray-900 line-clamp-2 ${isRTL() ? 'font-cairo' : ''}`}>
+              {content.title || content.generated_title || content.topic || 'Untitled Content'}
+            </h3>
+            <p className="text-sm text-gray-500 capitalize">
+              {content.content_type} • Age {content.age_group}
+            </p>
+            
+            {/* Show topic if different from title */}
+            {content.topic && content.topic !== content.title && (
+              <p className="text-xs text-blue-600 mt-1">
+                Topic: {content.topic}
+              </p>
+            )}
           </div>
         </div>
+        
+        <div className="flex items-center space-x-1 rtl:space-x-reverse">
+          {getStatusIcon(content.status, content.parent_approved)}
+        </div>
+      </div>
 
-        <div className="space-y-2 mb-4">
-          <div className="flex items-center justify-between text-sm">
+      {/* Content Preview - Show first few lines if available */}
+      {content.content && (
+        <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+          <p className="text-sm text-gray-700 line-clamp-3">
+            {content.content.length > 150 
+              ? content.content.substring(0, 150) + '...' 
+              : content.content
+            }
+          </p>
+        </div>
+      )}
+
+      {/* Metadata Grid */}
+      <div className="space-y-3 mb-4">
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div className="flex items-center justify-between">
             <span className="text-gray-500">Status:</span>
-            <span className={`font-medium ${
+            <span className={`font-medium px-2 py-1 rounded-full text-xs ${
               content.status === 'completed' && content.parent_approved === true
-                ? 'text-green-600'
+                ? 'bg-green-100 text-green-700'
                 : content.status === 'failed' || content.parent_approved === false
-                ? 'text-red-600'
-                : 'text-yellow-600'
+                ? 'bg-red-100 text-red-700'
+                : 'bg-yellow-100 text-yellow-700'
             }`}>
               {getStatusText(content.status, content.parent_approved)}
             </span>
           </div>
           
-          <div className="flex items-center justify-between text-sm">
+          <div className="flex items-center justify-between">
             <span className="text-gray-500">Language:</span>
             <span className="font-medium flex items-center">
-              <Globe className="w-4 h-4 mr-1 rtl:ml-1 rtl:mr-0" />
+              <Globe className="w-3 h-3 mr-1 rtl:ml-1 rtl:mr-0" />
               {content.language?.toUpperCase() || 'N/A'}
             </span>
           </div>
-          
-          {content.child_name && (
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-gray-500">Child:</span>
-              <span className="font-medium">{content.child_name}</span>
-            </div>
-          )}
-          
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-gray-500">Created:</span>
-            <span className="font-medium">
-              {new Date(content.created_at).toLocaleDateString()}
-            </span>
-          </div>
-
-          {/* DEBUG: Show raw status info */}
-          <div className="flex items-center justify-between text-xs text-gray-400">
-            <span>Debug:</span>
-            <span>Status: {content.status} | Approved: {String(content.parent_approved)}</span>
-          </div>
         </div>
 
-        <div className="flex space-x-2 rtl:space-x-reverse">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => handlePreview(content.session_id)}
-            icon={<Eye className="w-4 h-4" />}
-            className="flex-1"
-            disabled={!canPreview}
-            title={canPreview ? 'Preview content' : `Cannot preview: status is ${content.status}`}
-          >
-            Preview
-          </Button>
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-gray-500">Created:</span>
+            <span className="font-medium text-xs">
+              {content.created_at 
+                ? new Date(content.created_at).toLocaleDateString()
+                : 'Unknown'
+              }
+            </span>
+          </div>
           
-          {(content.status === 'completed' || content.status === 'approved') && content.parent_approved === true && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => handleDownload(content)}
-              icon={<Download className="w-4 h-4" />}
-            >
-              Download
-            </Button>
+          {content.credits_charged && (
+            <div className="flex items-center justify-between">
+              <span className="text-gray-500">Credits:</span>
+              <span className="font-medium">
+                {content.credits_cost || 1}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Additional Info Row */}
+        <div className="flex flex-wrap gap-2 text-xs">
+          {content.has_images && (
+            <span className="bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
+              🖼️ Has Images
+            </span>
           )}
           
+          {content.safety_approved && (
+            <span className="bg-green-100 text-green-700 px-2 py-1 rounded-full">
+              ✅ Safe
+            </span>
+          )}
+          
+          {content.generation_time && (
+            <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
+              ⏱️ {content.generation_time}s
+            </span>
+          )}
+
+          {content.child_name && (
+            <span className="bg-orange-100 text-orange-700 px-2 py-1 rounded-full">
+              👤 {content.child_name}
+            </span>
+          )}
+        </div>
+
+        {/* Debug info in development */}
+        {process.env.NODE_ENV === 'development' && (
+          <details className="text-xs text-gray-400">
+            <summary className="cursor-pointer">Debug Info</summary>
+            <pre className="mt-1 text-xs bg-gray-100 p-2 rounded overflow-auto">
+              {JSON.stringify(content, null, 2)}
+            </pre>
+          </details>
+        )}
+      </div>
+
+      {/* Action Buttons */}
+      <div className="flex space-x-2 rtl:space-x-reverse">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => handlePreview(content.session_id)}
+          icon={<Eye className="w-4 h-4" />}
+          className="flex-1"
+          disabled={!canPreview}
+          title={canPreview ? 'Preview content' : `Cannot preview: status is ${content.status}`}
+        >
+          Preview
+        </Button>
+        
+        {(content.status === 'completed' || content.status === 'approved') && content.parent_approved === true && (
           <Button
             size="sm"
             variant="ghost"
-            onClick={() => handleDelete(content.session_id)}
-            icon={<Trash2 className="w-4 h-4" />}
-            className="text-red-600 hover:text-red-700 hover:bg-red-50"
-            loading={isDeleting === content.session_id}
-            disabled={isDeleting === content.session_id}
+            onClick={() => handleDownload(content)}
+            icon={<Download className="w-4 h-4" />}
+            title="Download content"
           >
-            Delete
+            Download
           </Button>
-        </div>
+        )}
+        
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => handleDelete(content.session_id)}
+          icon={<Trash2 className="w-4 h-4" />}
+          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+          loading={isDeleting === content.session_id}
+          disabled={isDeleting === content.session_id}
+          title="Delete content"
+        >
+          Delete
+        </Button>
       </div>
-    )
-  }
+    </div>
+  )
+}
 
   const handleFilterChange = (key, value) => {
     setFilters(prev => ({ ...prev, [key]: value }))
@@ -404,8 +433,7 @@ const checkEnumValues = () => {
       setIsDeleting(null)
     }
   }
-
-  
+ 
 
   const handleDownload = (content) => {
     try {
@@ -425,85 +453,13 @@ const checkEnumValues = () => {
     }
   }
  
-
-  const getContentTypeIcon = (type) => {
-    const icons = {
-      story: BookOpen,
-      worksheet: FileText,
-      quiz: HelpCircle,
-      exercise: Activity
-    }
-    const IconComponent = icons[type] || BookOpen
-    return <IconComponent className="w-5 h-5" />
+ // In your PreviewModal component, add:
+useEffect(() => {
+  if (selectedContent) {
+    console.log('Preview content raw:', selectedContent)
+    console.log('Preview content keys:', Object.keys(selectedContent))
   }
- 
-  const PreviewModal = () => (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
-        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4">
-          <div className="flex items-center justify-between">
-            <h2 className={`text-xl font-semibold text-gray-900 ${isRTL() ? 'font-cairo' : ''}`}>
-              Content Preview
-            </h2>
-            <button
-              onClick={() => setShowPreview(false)}
-              className="p-2 hover:bg-gray-100 rounded-full transition-colors duration-200"
-            >
-              <XCircle className="w-5 h-5 text-gray-400" />
-            </button>
-          </div>
-        </div>
-
-        <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
-          {selectedContent && (
-            <>
-              <div className="mb-6">
-                <h3 className={`text-2xl font-bold text-gray-900 mb-4 ${isRTL() ? 'font-cairo' : ''}`}>
-                  {selectedContent.title}
-                </h3>
-                
-                <div className="flex flex-wrap gap-4 mb-6 text-sm text-gray-600">
-                  <span className="flex items-center">
-                    {getContentTypeIcon(selectedContent.content_type)}
-                    <span className="ml-1 rtl:mr-1 rtl:ml-0 capitalize">{selectedContent.content_type}</span>
-                  </span>
-                  <span>Age {selectedContent.age_group}</span>
-                  <span className="flex items-center">
-                    <Globe className="w-4 h-4 mr-1 rtl:ml-1 rtl:mr-0" />
-                    {selectedContent.language?.toUpperCase()}
-                  </span>
-                  {selectedContent.credits_used && (
-                    <span>{selectedContent.credits_used} credits used</span>
-                  )}
-                </div>
-              </div>
-
-              <div className={`prose max-w-none ${isRTL() ? 'font-cairo' : ''}`}>
-                <div className="whitespace-pre-wrap text-gray-700 leading-relaxed">
-                  {selectedContent.content}
-                </div>
-              </div>
-
-              <div className="mt-8 flex justify-end space-x-4 rtl:space-x-reverse">
-                <Button
-                  variant="outline"
-                  onClick={() => setShowPreview(false)}
-                >
-                  Close
-                </Button>
-                <Button
-                  onClick={() => handleDownload(selectedContent)}
-                  icon={<Download className="w-4 h-4" />}
-                >
-                  Download
-                </Button>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  )
+}, [selectedContent])
  
 const testContentStatus = async () => {
   try {
@@ -682,6 +638,14 @@ const renderTestButton = () => (
 
         {/* Preview Modal */}
         {showPreview && <PreviewModal />}
+
+        // Add this to your JSX (temporarily)
+<Button
+  onClick={() => debugContentItem(contentHistory[0]?.session_id)}
+  className="mb-4"
+>
+  Debug First Item
+</Button>
       </div>
     </div>
   )

@@ -19,16 +19,18 @@ import toast from 'react-hot-toast'
 
 import { useLanguageStore } from '../stores/languageStore'
 import { useAuthStore } from '../stores/authStore' // FIXED: Added missing import
-import { contentAPI, childrenAPI } from '../services/api'
-import Button from '../components/ui/Button'
+import { contentAPI, childrenAPI } from '../services/api' 
 import LoadingSpinner from '../components/LoadingSpinner'
+import InteractiveQuiz from './InteractiveQuiz'
+import Button from '../components/ui/Button'
+import InteractiveWorksheet from './InteractiveWorksheet'
 
 const ContentGeneration = () => {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { user } = useAuthStore()
   const { t, isRTL } = useLanguageStore()
-  
+  const [includeImages, setIncludeImages] = useState(false)
   const [children, setChildren] = useState([])
   const [isGenerating, setIsGenerating] = useState(false)
   const [generationStatus, setGenerationStatus] = useState(null)
@@ -89,78 +91,123 @@ const ContentGeneration = () => {
     }
   }
 
-  const checkGenerationStatus = async () => {
-    if (!sessionId) {
-      console.warn('No session ID for status check')
-      return
-    }
 
-    console.log(`Checking status for session ${sessionId}, attempt ${pollAttempts + 1}`)
+  
+const checkGenerationStatus = async () => {
+  if (!sessionId) {
+    console.warn('No session ID for status check')
+    return
+  }
 
-    // FIXED: Stop polling after max attempts
-    if (pollAttempts >= maxPollAttempts) {
-      console.error('Max polling attempts reached')
-      setIsGenerating(false)
-      setStep('form')
-      setPollAttempts(0)
-      toast.error('Content generation timed out. Please try again.')
-      return
-    }
+  console.log(`Checking status for session ${sessionId}, attempt ${pollAttempts + 1}`)
 
-    try {
-      const response = await contentAPI.getStatus(sessionId)
-      const status = response.data
+  // Stop polling after max attempts
+  if (pollAttempts >= maxPollAttempts) {
+    console.error('Max polling attempts reached')
+    setIsGenerating(false)
+    setStep('form')
+    setPollAttempts(0)
+    toast.error('Content generation timed out. Please try again.')
+    return
+  }
 
-      console.log('Status response:', status)
-      setGenerationStatus(status)
+  try {
+    const response = await contentAPI.getStatus(sessionId)
+    const status = response.data
+
+    console.log('🔍 Full status response:', status)
+    
+    setGenerationStatus(status)
+    setPollAttempts(prev => prev + 1)
+
+    // FIXED: Handle completed status correctly
+    if (status.status === 'completed') {
+      console.log('✅ Content generation completed!')
       
-      // FIXED: Increment counter AFTER successful API call
-      setPollAttempts(prev => {
-        const newCount = prev + 1
-        console.log(`Poll attempt ${newCount} of ${maxPollAttempts}`)
-        return newCount
-      })
-
-      if (status.status === 'completed' && status.content) {
-        console.log('Content generation completed successfully')
+      // Check if content is in the status response
+      if (status.content) {
+        console.log('📄 Content found in status response')
         setGeneratedContent(status.content)
         setIsGenerating(false)
         setStep('review')
-        setPollAttempts(0) // Reset counter
-      } else if (status.status === 'failed') {
-        console.error('Content generation failed:', status.error_message)
-        setIsGenerating(false)
-        setStep('form')
-        setPollAttempts(0) // Reset counter
-        toast.error(status.error_message || 'Content generation failed')
-      } else if (status.status === 'processing') {
-        console.log('Content still processing...')
-        // Continue polling
+        setPollAttempts(0)
+        toast.success('Content generated successfully!')
       } else {
-        console.log('Status:', status.status, 'continuing to poll...')
-        // Continue polling for pending status
-      }
-    } catch (error) {
-      console.error('Failed to check status:', error)
-      
-      // FIXED: Increment counter even on error
-      setPollAttempts(prev => {
-        const newCount = prev + 1
-        console.log(`Poll error attempt ${newCount}`)
-        
-        // Stop polling after multiple failures
-        if (newCount >= 5) {
-          console.error('Too many status check failures, stopping polling')
+        // Content not in status response, try to fetch it separately
+        console.log('📄 Content not in status, fetching separately...')
+        try {
+          const contentResponse = await contentAPI.getContent(sessionId)
+          console.log('📄 Content fetched separately:', contentResponse.data)
+          setGeneratedContent(contentResponse.data)
+          setIsGenerating(false)
+          setStep('review')
+          setPollAttempts(0)
+          toast.success('Content generated successfully!')
+        } catch (contentError) {
+          console.error('❌ Failed to fetch content:', contentError)
+          toast.error('Content was generated but could not be loaded. Check your history.')
           setIsGenerating(false)
           setStep('form')
-          toast.error('Failed to check generation status. Please try again.')
-          return 0 // Reset counter
+          setPollAttempts(0)
         }
-        
-        return newCount
-      })
+      }
+      
+    } else if (status.status === 'failed') {
+      console.error('❌ Content generation failed:', status.error_message)
+      setIsGenerating(false)
+      setStep('form')
+      setPollAttempts(0)
+      toast.error(status.error_message || 'Content generation failed')
+      
+    } else if (status.status === 'rejected') {
+      console.error('🚫 Content generation was rejected:', status.error_message)
+      setIsGenerating(false)
+      setStep('form')
+      setPollAttempts(0)
+      
+      const rejectionReason = status.error_message || 'Content was rejected by safety filters'
+      if (rejectionReason.includes('inappropriate terms')) {
+        toast.error('Topic contains words that our safety filter flagged. Try rephrasing your topic.')
+      } else {
+        toast.error(rejectionReason)
+      }
+      
+    } else if (status.status === 'processing' || status.status === 'pending') {
+      console.log('🔄 Content still processing...')
+      // Continue polling for these statuses
+      
+    } else {
+      console.warn('⚠️ Unknown status:', status.status, 'stopping polling after a few attempts')
+      
+      // Stop polling after 3 unknown status responses
+      if (pollAttempts >= 3) {
+        console.error('❌ Too many unknown status responses, stopping polling')
+        setIsGenerating(false)
+        setStep('form')
+        setPollAttempts(0)
+        toast.error(`Unknown status: ${status.status}. Please check your history or try again.`)
+      }
     }
+    
+  } catch (error) {
+    console.error('💥 Failed to check status:', error)
+    
+    setPollAttempts(prev => {
+      const newCount = prev + 1
+      
+      // Stop polling after multiple failures
+      if (newCount >= 5) {
+        console.error('❌ Too many status check failures, stopping polling')
+        setIsGenerating(false)
+        setStep('form')
+        toast.error('Failed to check generation status. Please try again.')
+        return 0
+      }
+      
+      return newCount
+    })
   }
+}
 
   const onSubmit = async (data) => {
     console.log('Form data being submitted:', data)
@@ -269,15 +316,19 @@ const ContentGeneration = () => {
     }
   }
 
-  const getRequiredCredits = (contentType) => {
-    const costs = {
-      story: 1,
-      worksheet: 2,
-      quiz: 2,
-      exercise: 1
-    }
-    return costs[contentType] || 1
+  const getRequiredCredits = (contentType, withImages = false) => {
+  const baseCosts = {
+    story: 1,
+    worksheet: 2,
+    quiz: 2,
+    exercise: 1
   }
+  
+  const baseCost = baseCosts[contentType] || 1
+  const imageCost = withImages ? 2 : 0
+  
+  return baseCost + imageCost
+}
 
   const contentTypes = [
     {
@@ -406,7 +457,163 @@ const ContentGeneration = () => {
     )
   }
 
+    // Updated review step with quiz AND worksheet integration
   if (step === 'review' && generatedContent) {
+    // Check if this is a QUIZ and has questions - show interactive quiz
+    if (generatedContent.content_type === 'quiz' && generatedContent.questions && generatedContent.questions.length > 0) {
+      return (
+        <div className="min-h-screen bg-gray-50 py-8">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+            {/* Quiz Mode Header */}
+            <div className="text-center mb-6">
+              <h2 className={`text-3xl font-bold text-gray-900 mb-2 ${isRTL() ? 'font-cairo' : ''}`}>
+                Interactive Quiz Preview
+              </h2>
+              <p className={`text-gray-600 ${isRTL() ? 'font-cairo' : ''}`}>
+                Try out the quiz to see how it will work for your child
+              </p>
+            </div>
+
+            <InteractiveQuiz 
+              quizData={generatedContent}
+              onComplete={(results) => {
+                console.log('Quiz completed with results:', results)
+                toast.success(`Great! You scored ${results.percentage}% on the quiz preview!`)
+              }}
+              onBack={() => {
+                // Stay in review mode
+              }}
+            />
+            
+            <div className="max-w-3xl mx-auto mt-8">
+              <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 text-center">
+                  Ready to save this quiz for your child?
+                </h3>
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <Button
+                    onClick={() => handleApprove(true)}
+                    className="flex-1"
+                    icon={<CheckCircle className="w-5 h-5" />}
+                  >
+                    Approve & Save Quiz
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => handleApprove(false)}
+                    className="flex-1"
+                    icon={<RefreshCw className="w-5 h-5" />}
+                  >
+                    Regenerate Quiz
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    
+{/* Image Gallery - NEW SECTION */}
+{generatedContent.generated_images && generatedContent.generated_images.length > 0 && (
+  <div className="mb-6">
+    <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+      🖼️ Story Images ({generatedContent.generated_images.length})
+    </h4>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {generatedContent.generated_images.map((image, index) => (
+        <div key={index} className="border border-gray-200 rounded-lg overflow-hidden bg-white shadow-sm">
+          <div className="aspect-square bg-gray-100 flex items-center justify-center">
+            <img
+              src={image.image_url}
+              alt={image.description}
+              className="max-w-full max-h-full object-contain"
+              onError={(e) => {
+                console.error('Image failed to load:', image.image_url)
+                e.target.style.display = 'none'
+                e.target.nextSibling.style.display = 'block'
+              }}
+            />
+            <div 
+              className="text-gray-500 text-center p-4 hidden"
+              style={{ display: 'none' }}
+            >
+              <p>Image failed to load</p>
+              <p className="text-xs mt-1">Scene: {image.scene}</p>
+            </div>
+          </div>
+          <div className="p-3">
+            <p className="text-sm font-medium text-gray-900 mb-1">
+              {image.scene}
+            </p>
+            <p className="text-xs text-gray-600">
+              {image.description}
+            </p>
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+)}
+
+
+    // Check if this is a WORKSHEET and has questions - show interactive worksheet
+    if (generatedContent.content_type === 'worksheet' && generatedContent.questions && generatedContent.questions.length > 0) {
+      return (
+        <div className="min-h-screen bg-gray-50 py-8">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+            {/* Worksheet Mode Header */}
+            <div className="text-center mb-6">
+              <h2 className={`text-3xl font-bold text-gray-900 mb-2 ${isRTL() ? 'font-cairo' : ''}`}>
+                Interactive Worksheet Preview
+              </h2>
+              <p className={`text-gray-600 ${isRTL() ? 'font-cairo' : ''}`}>
+                Try out the worksheet to see how it will work for your child
+              </p>
+            </div>
+
+            <InteractiveWorksheet 
+              worksheetData={generatedContent}
+              onComplete={(results) => {
+                console.log('Worksheet completed with results:', results)
+                toast.success(`Excellent! You completed ${results.percentage}% of the worksheet!`)
+              }}
+              onBack={() => {
+                // Stay in review mode
+              }}
+            />
+            
+            <div className="max-w-3xl mx-auto mt-8">
+              <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 text-center">
+                  Ready to save this worksheet for your child?
+                </h3>
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <Button
+                    onClick={() => handleApprove(true)}
+                    className="flex-1"
+                    icon={<CheckCircle className="w-5 h-5" />}
+                  >
+                    Approve & Save Worksheet
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => handleApprove(false)}
+                    className="flex-1"
+                    icon={<RefreshCw className="w-5 h-5" />}
+                  >
+                    Regenerate Worksheet
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    // Regular content review (for stories, exercises, or content without interactive elements)
     return (
       <div className="min-h-screen bg-gray-50 py-8">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -421,20 +628,156 @@ const ContentGeneration = () => {
               </p>
             </div>
 
-            {/* Content */}
+            {/* Rest of your existing review content for stories/exercises... */}
             <div className="p-6">
               <div className="mb-6">
                 <h3 className={`text-xl font-semibold text-gray-900 mb-4 ${isRTL() ? 'font-cairo' : ''}`}>
                   {generatedContent.title}
                 </h3>
+                
                 <div className={`prose max-w-none ${isRTL() ? 'font-cairo' : ''}`}>
-                  <div className="whitespace-pre-wrap text-gray-700 leading-relaxed">
+                  <div className="whitespace-pre-wrap text-gray-700 leading-relaxed mb-6">
                     {generatedContent.content}
                   </div>
                 </div>
+
+                 {/* ADD THE IMAGE GALLERY HERE - RIGHT AFTER THE CONTENT */}
+            {generatedContent.generated_images && generatedContent.generated_images.length > 0 && (
+              <div className="mb-6">
+                <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                  🖼️ Story Images ({generatedContent.generated_images.length})
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {generatedContent.generated_images.map((image, index) => (
+                    <div key={index} className="border border-gray-200 rounded-lg overflow-hidden bg-white shadow-sm">
+                      <div className="aspect-square bg-gray-100 flex items-center justify-center">
+                        <img
+                          src={image.image_url}
+                          alt={image.description}
+                          className="max-w-full max-h-full object-contain"
+                          onError={(e) => {
+                            console.error('Image failed to load:', image.image_url)
+                            e.target.style.display = 'none'
+                            e.target.nextSibling.style.display = 'block'
+                          }}
+                        />
+                        <div 
+                          className="text-gray-500 text-center p-4 hidden"
+                          style={{ display: 'none' }}
+                        >
+                          <p>Image failed to load</p>
+                          <p className="text-xs mt-1">Scene: {image.scene}</p>
+                        </div>
+                      </div>
+                      <div className="p-3">
+                        <p className="text-sm font-medium text-gray-900 mb-1">
+                          {image.scene}
+                        </p>
+                        <p className="text-xs text-gray-600">
+                          {image.description}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+                {/* Show questions for non-interactive content */}
+               {generatedContent.questions && generatedContent.questions.length > 0 && (
+  <div className="mb-6">
+    <h4 className="text-lg font-semibold text-gray-900 mb-4">
+      📝 Questions ({generatedContent.questions.length})
+    </h4>
+    <div className="space-y-4">
+      {generatedContent.questions.map((question, index) => (
+        <div key={index} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+          <p className="font-medium text-gray-900 mb-2">
+            <span className="text-blue-600 font-bold">Q{index + 1}:</span> {question.question}
+          </p>
+          
+          {/* FIXED: Handle different question types */}
+          {question.type === 'multiple_choice' && question.options && (
+            <div className="ml-4 mb-2">
+              <p className="text-sm text-gray-600 mb-1">Options:</p>
+              <ul className="list-disc list-inside space-y-1">
+                {question.options.map((option, optIndex) => (
+                  <li 
+                    key={optIndex} 
+                    className={`text-sm ${
+                      option === question.answer 
+                        ? 'text-green-700 font-medium' 
+                        : 'text-gray-600'
+                    }`}
+                  >
+                    {option} {option === question.answer && '✓'}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          
+          {/* FIXED: Handle matching questions */}
+          {question.type === 'matching' && question.options && (
+            <div className="ml-4 mb-2">
+              <p className="text-sm text-gray-600 mb-1">Match these pairs:</p>
+              <div className="grid grid-cols-2 gap-2">
+                {question.options.map((option, optIndex) => {
+                  // Split "Kitten-Cat" into ["Kitten", "Cat"]
+                  const [baby, parent] = option.split('-')
+                  return (
+                    <div key={optIndex} className="flex items-center justify-between bg-white p-2 rounded border">
+                      <span className="text-blue-600 font-medium">{baby}</span>
+                      <span className="text-gray-400">→</span>
+                      <span className="text-green-600 font-medium">{parent}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+          
+          {/* FIXED: Handle number/fill-in questions */}
+          {(question.type === 'number' || question.type === 'short_answer') && question.options && (
+            <div className="ml-4 mb-2">
+              <p className="text-sm text-gray-600 mb-1">Possible answers:</p>
+              <div className="flex flex-wrap gap-2">
+                {question.options.map((option, optIndex) => (
+                  <span 
+                    key={optIndex}
+                    className={`px-2 py-1 rounded text-sm ${
+                      option === question.answer 
+                        ? 'bg-green-100 text-green-700 font-medium' 
+                        : 'bg-gray-100 text-gray-600'
+                    }`}
+                  >
+                    {option} {option === question.answer && '✓'}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          {/* Answer and explanation */}
+          <div className="mt-2">
+            <p className="text-green-700 text-sm">
+              <span className="font-medium">Answer:</span> {question.answer}
+            </p>
+            {question.explanation && (
+              <p className="text-blue-700 text-sm mt-1">
+                <span className="font-medium">Explanation:</span> {question.explanation}
+              </p>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+)}
+
+                {/* Learning objectives, activities, etc. - keep your existing code */}
               </div>
 
-              {/* Actions */}
               <div className="flex flex-col sm:flex-row gap-4 pt-6 border-t border-gray-200">
                 <Button
                   onClick={() => handleApprove(true)}
@@ -531,6 +874,141 @@ const ContentGeneration = () => {
             </div>
           </div>
         )}
+
+        
+// Add this section to your form (after content options, before submit)
+<div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+  <h2 className={`text-xl font-semibold text-gray-900 mb-4 ${isRTL() ? 'font-cairo' : ''}`}>
+    4. Image Options
+  </h2>
+  
+  <div className="space-y-4">
+    {/* Image inclusion toggle */}
+    <div className="border border-gray-200 rounded-lg p-4">
+      <div className="flex items-start space-x-4">
+        <div className="flex items-center mt-1">
+          <input
+            type="checkbox"
+            id="include_images"
+            checked={includeImages}
+            onChange={(e) => setIncludeImages(e.target.checked)}
+            className="h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+          />
+        </div>
+        
+        <div className="flex-1">
+          <label htmlFor="include_images" className="block">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-lg font-medium text-gray-900">
+                🖼️ Generate with Images
+              </span>
+              <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                includeImages 
+                  ? 'bg-purple-100 text-purple-700' 
+                  : 'bg-gray-100 text-gray-600'
+              }`}>
+                +{includeImages ? '2' : '0'} credits
+              </span>
+            </div>
+            
+            <p className="text-gray-600 text-sm mb-3">
+              Add beautiful AI-generated illustrations to bring your story to life
+            </p>
+            
+            {includeImages && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-3">
+                <div className="flex items-start space-x-2">
+                  <div className="text-yellow-600 mt-0.5">⚠️</div>
+                  <div>
+                    <p className="text-yellow-800 font-medium text-sm">Image Expiration Notice</p>
+                    <p className="text-yellow-700 text-xs mt-1">
+                      Generated images are available for <strong>2 hours</strong> after creation. 
+                      After that, you'll see image descriptions but not the actual images.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className={`p-3 rounded-lg border-2 transition-all ${
+                !includeImages 
+                  ? 'border-green-300 bg-green-50' 
+                  : 'border-gray-200 bg-gray-50'
+              }`}>
+                <div className="font-medium text-gray-900 mb-1">📄 Text Only</div>
+                <div className="text-gray-600 text-xs space-y-1">
+                  <div>• Faster generation</div>
+                  <div>• Lower credit cost</div>
+                  <div>• Always available</div>
+                </div>
+              </div>
+              
+              <div className={`p-3 rounded-lg border-2 transition-all ${
+                includeImages 
+                  ? 'border-purple-300 bg-purple-50' 
+                  : 'border-gray-200 bg-gray-50'
+              }`}>
+                <div className="font-medium text-gray-900 mb-1">🎨 With Images</div>
+                <div className="text-gray-600 text-xs space-y-1">
+                  <div>• Visual storytelling</div>
+                  <div>• Higher engagement</div>
+                  <div>• 2-hour availability</div>
+                </div>
+              </div>
+            </div>
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+// Update your submit section to show dynamic pricing
+<div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+  <div className="flex items-center justify-between">
+    <div>
+      <div className="flex items-center space-x-4">
+        <div>
+          <p className={`text-sm text-gray-600 ${isRTL() ? 'font-cairo' : ''}`}>
+            Credit Cost: <span className="font-semibold">{getRequiredCredits(watchedValues.content_type, includeImages)} credits</span>
+          </p>
+          <p className={`text-xs text-gray-500 ${isRTL() ? 'font-cairo' : ''}`}>
+            Your balance: {user?.credits || 0} credits
+          </p>
+        </div>
+        
+        {includeImages && (
+          <div className="text-xs text-purple-600 bg-purple-100 px-2 py-1 rounded-full">
+            +2 for images
+          </div>
+        )}
+      </div>
+    </div>
+    
+    <div className="flex space-x-4 rtl:space-x-reverse">
+      <Button
+        type="submit"
+        size="lg"
+        disabled={isGenerating || (user?.credits || 0) < getRequiredCredits(watchedValues.content_type, includeImages)}
+        loading={isGenerating}
+        icon={<Wand2 className="w-5 h-5" />}
+        className="px-8"
+      >
+        {includeImages ? '🎨 Generate with Images' : '📄 Generate Story'}
+      </Button>
+    </div>
+  </div>
+  
+  {/* Credit warning */}
+  {(user?.credits || 0) < getRequiredCredits(watchedValues.content_type, includeImages) && (
+    <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+      <p className="text-red-700 text-sm">
+        ⚠️ Insufficient credits. You need {getRequiredCredits(watchedValues.content_type, includeImages)} credits but have {user?.credits || 0}.
+      </p>
+    </div>
+  )}
+</div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
           {/* Content Type Selection */}
