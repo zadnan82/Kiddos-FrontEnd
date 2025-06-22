@@ -22,7 +22,7 @@ import Credits from './pages/Credits'
 import Profile from './pages/Profile'
 import NotFound from './pages/NotFound'
 
-// Fixed Content Layout and Pages
+// Fixed Content Layout and Pages (Database-driven)
 import FixedContentLayout from './components/FixedContenLayout'
 import FixedContentHome from './pages/FixedContentHome'
 import SubjectList from './pages/SubjectList'
@@ -30,6 +30,11 @@ import CourseList from './pages/CourseList'
 import CourseDetail from './pages/CourseDetail'
 import LessonDetail from './pages/LessonDetail'
 import LearningDashboard from './pages/LearningDashboard'
+
+// NEW: JSON Course Components (File-driven) 
+import JsonCourseDetail from './components/JsonCourseDetail'
+import JsonCourseViewer from './components/JsonCourseViewer'
+import DynamicCourseBrowser from './components/DynamicCourseBrowser'
 
 function App() {
   const { user, isLoading, checkAuth } = useAuthStore()
@@ -64,6 +69,7 @@ function App() {
       {/* Public routes */}
       <Route path="/" element={<Layout />}>
         <Route index element={user ? <Navigate to="/dashboard" replace /> : <Home />} />
+        
         <Route 
           path="login" 
           element={user ? <Navigate to="/dashboard" replace /> : <Login />} 
@@ -73,6 +79,13 @@ function App() {
           element={user ? <Navigate to="/dashboard" replace /> : <Register />} 
         />
       </Route>
+<Route path="/json-course-test" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+  <Route index element={<DynamicCourseBrowser />} />
+</Route>
+ 
+      <Route path="/json-course-test" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+  <Route index element={<JsonCourseViewer />} />
+</Route>
 
       {/* Protected routes - Regular App */}
       <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
@@ -84,7 +97,7 @@ function App() {
         <Route path="profile" element={<Profile />} />
       </Route>
 
-      {/* Protected routes - Fixed Content System with Special Layout */}
+      {/* Protected routes - Fixed Content System with Special Layout (Database-driven) */}
       <Route path="/fixed-content" element={<ProtectedRoute><FixedContentLayout /></ProtectedRoute>}>
         <Route index element={<FixedContentHome />} />
         <Route path="dashboard" element={<LearningDashboard />} />
@@ -92,6 +105,12 @@ function App() {
         <Route path="subjects/:subjectId" element={<CourseList />} />
         <Route path="courses/:courseId" element={<CourseDetail />} />
         <Route path="lessons/:lessonId" element={<LessonDetail />} />
+      </Route>
+
+      {/* NEW: Protected routes - JSON Course System (File-driven) */}
+      <Route path="/json-courses" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+        
+        <Route path=":ageGroup/:subject/:courseName" element={<JsonCourseDetail />} />
       </Route>
 
       {/* 404 route */}
