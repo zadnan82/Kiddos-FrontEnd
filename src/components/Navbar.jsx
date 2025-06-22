@@ -12,7 +12,8 @@ import {
   User,
   LogOut,
   ChevronDown,
-  GraduationCap // NEW ICON for courses
+  GraduationCap, // Icon for courses
+  BookOpen      // NEW ICON for JSON courses
 } from 'lucide-react'
 import { useAuthStore } from '../stores/authstore'
 import { useLanguageStore } from '../stores/languageStore'
@@ -22,6 +23,7 @@ import LanguageSwitch from './LanguageSwitch'
 const Navbar = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isProfileOpen, setIsProfileOpen] = useState(false)
+  const [isCoursesOpen, setIsCoursesOpen] = useState(false) // NEW: Courses dropdown
   
   const location = useLocation()
   const navigate = useNavigate()
@@ -34,12 +36,22 @@ const Navbar = () => {
     setIsProfileOpen(false)
   }
 
-  // UPDATED: Navigation items for authenticated users
+  // UPDATED: Navigation items with courses dropdown
   const navItems = [
     { path: '/dashboard', label: t('dashboard'), icon: LayoutDashboard },
     { path: '/children', label: t('children'), icon: Users },
     { path: '/generate', label: t('generate'), icon: PenTool },
-    { path: '/fixed-content', label: t('courses'), icon: GraduationCap }, // NEW
+    { 
+      path: '/fixed-content', 
+      label: t('courses'), 
+      icon: GraduationCap,
+      hasDropdown: true, // NEW: Indicates this has a dropdown
+      // In your Navbar component, update the dropdownItems:
+dropdownItems: [
+  { path: '/fixed-content', label: 'Database Courses', icon: GraduationCap },
+  { path: '/json-course-test', label: 'JSON Course Test', icon: BookOpen } // Only this one works
+]
+    },
     { path: '/history', label: t('history'), icon: History },
     { path: '/credits', label: t('credits'), icon: Coins },
   ]
@@ -49,7 +61,75 @@ const Navbar = () => {
     if (path === '/fixed-content') {
       return location.pathname.startsWith('/fixed-content')
     }
+    if (path === '/json-courses') {
+      return location.pathname.startsWith('/json-courses')
+    }
     return location.pathname === path
+  }
+
+  // NEW: Check if courses section is active
+  const isCoursesActive = () => {
+    return location.pathname.startsWith('/fixed-content') || 
+           location.pathname.startsWith('/json-courses')
+  }
+
+  const renderNavItem = (item) => {
+    if (item.hasDropdown) {
+      return (
+        <div key={item.path} className="relative">
+          <button
+            onClick={() => setIsCoursesOpen(!isCoursesOpen)}
+            className={`flex items-center space-x-2 rtl:space-x-reverse px-3 py-2 rounded-md text-sm font-medium transition-colors duration-200 ${
+              isCoursesActive()
+                ? 'text-blue-600 bg-blue-50'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+            } ${isRTL() ? 'font-cairo' : ''}`}
+          >
+            <item.icon className="w-4 h-4" />
+            <span>{item.label}</span>
+            <ChevronDown className={`w-3 h-3 transition-transform ${isCoursesOpen ? 'rotate-180' : ''}`} />
+          </button>
+
+          {/* Courses Dropdown */}
+          {isCoursesOpen && (
+            <div className={`absolute ${isRTL() ? 'left-0' : 'right-0'} mt-2 w-56 bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 z-50`}>
+              <div className="py-1">
+                {item.dropdownItems.map((dropdownItem) => (
+                  <Link
+                    key={dropdownItem.path}
+                    to={dropdownItem.path}
+                    className={`flex items-center px-4 py-2 text-sm transition-colors ${
+                      isActive(dropdownItem.path)
+                        ? 'text-blue-600 bg-blue-50'
+                        : 'text-gray-700 hover:bg-gray-100'
+                    }`}
+                    onClick={() => setIsCoursesOpen(false)}
+                  >
+                    <dropdownItem.icon className="w-4 h-4 mr-3 rtl:ml-3 rtl:mr-0" />
+                    {dropdownItem.label}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    return (
+      <Link
+        key={item.path}
+        to={item.path}
+        className={`flex items-center space-x-2 rtl:space-x-reverse px-3 py-2 rounded-md text-sm font-medium transition-colors duration-200 ${
+          isActive(item.path)
+            ? 'text-blue-600 bg-blue-50'
+            : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+        } ${isRTL() ? 'font-cairo' : ''}`}
+      >
+        <item.icon className="w-4 h-4" />
+        <span>{item.label}</span>
+      </Link>
+    )
   }
 
   return (
@@ -70,20 +150,7 @@ const Navbar = () => {
           {/* Desktop Navigation */}
           {isAuthenticated && (
             <div className="hidden md:flex items-center space-x-8 rtl:space-x-reverse">
-              {navItems.map(({ path, label, icon: Icon }) => (
-                <Link
-                  key={path}
-                  to={path}
-                  className={`flex items-center space-x-2 rtl:space-x-reverse px-3 py-2 rounded-md text-sm font-medium transition-colors duration-200 ${
-                    isActive(path)
-                      ? 'text-blue-600 bg-blue-50'
-                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                  } ${isRTL() ? 'font-cairo' : ''}`}
-                >
-                  <Icon className="w-4 h-4" />
-                  <span>{label}</span>
-                </Link>
-              ))}
+              {navItems.map(renderNavItem)}
             </div>
           )}
 
@@ -176,31 +243,61 @@ const Navbar = () => {
         {isAuthenticated && isMenuOpen && (
           <div className="md:hidden border-t border-gray-200 py-4">
             <div className="space-y-2">
-              {navItems.map(({ path, label, icon: Icon }) => (
-                <Link
-                  key={path}
-                  to={path}
-                  className={`flex items-center space-x-3 rtl:space-x-reverse px-3 py-2 rounded-md text-base font-medium transition-colors duration-200 ${
-                    isActive(path)
-                      ? 'text-blue-600 bg-blue-50'
-                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+              {navItems.map((item) => {
+                if (item.hasDropdown) {
+                  return (
+                    <div key={item.path}>
+                      <div className="px-3 py-2 text-sm font-medium text-gray-500 uppercase tracking-wider">
+                        {item.label}
+                      </div>
+                      {item.dropdownItems.map((dropdownItem) => (
+                        <Link
+                          key={dropdownItem.path}
+                          to={dropdownItem.path}
+                          className={`flex items-center space-x-3 rtl:space-x-reverse px-6 py-2 rounded-md text-base font-medium transition-colors duration-200 ${
+                            isActive(dropdownItem.path)
+                              ? 'text-blue-600 bg-blue-50'
+                              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                          } ${isRTL() ? 'font-cairo' : ''}`}
+                          onClick={() => setIsMenuOpen(false)}
+                        >
+                          <dropdownItem.icon className="w-5 h-5" />
+                          <span>{dropdownItem.label}</span>
+                        </Link>
+                      ))}
+                    </div>
+                  )
+                }
+
+                return (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    className={`flex items-center space-x-3 rtl:space-x-reverse px-3 py-2 rounded-md text-base font-medium transition-colors duration-200 ${
+                      isActive(item.path)
+                        ? 'text-blue-600 bg-blue-50'
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
                     } ${isRTL() ? 'font-cairo' : ''}`}
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  <Icon className="w-5 h-5" />
-                  <span>{label}</span>
-                </Link>
-              ))}
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    <item.icon className="w-5 h-5" />
+                    <span>{item.label}</span>
+                  </Link>
+                )
+              })}
             </div>
           </div>
         )}
       </div>
 
-      {/* Click outside to close dropdown */}
-      {isProfileOpen && (
+      {/* Click outside to close dropdowns */}
+      {(isProfileOpen || isCoursesOpen) && (
         <div 
           className="fixed inset-0 z-40" 
-          onClick={() => setIsProfileOpen(false)}
+          onClick={() => {
+            setIsProfileOpen(false)
+            setIsCoursesOpen(false)
+          }}
         />
       )}
     </nav>

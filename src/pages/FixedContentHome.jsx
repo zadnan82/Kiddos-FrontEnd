@@ -4,14 +4,24 @@ import { useFixedContentStore } from '../stores/fixedContentStore'
 import { useLanguageStore } from '../stores/languageStore'
 import SubjectCard from '../components/SubjectCard'
 import LoadingSpinner from '../components/LoadingSpinner'
+import DebugFixedContent from '../components/DebugFixedContent'
 
 const FixedContentHome = () => {
   const { subjects, loading, error, fetchSubjects } = useFixedContentStore()
   const { language, t } = useLanguageStore()
 
   useEffect(() => {
-    fetchSubjects()
-  }, [fetchSubjects])
+  const loadData = async () => {
+    try {
+      await fetchSubjects()
+    } catch (error) {
+      console.error('Failed to load subjects:', error)
+    }
+  }
+  
+  loadData()
+}, []) // Remove fetchSubjects from dependencies to avoid loops
+
 
   if (loading) {
     return (
@@ -89,6 +99,7 @@ const FixedContentHome = () => {
           {t('fixedContent.viewProgress')}
         </Link>
       </div>
+      {process.env.NODE_ENV === 'development' && <DebugFixedContent />}
     </div>
   )
 }
