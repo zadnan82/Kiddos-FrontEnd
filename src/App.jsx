@@ -10,7 +10,7 @@ import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
 import LoadingSpinner from './components/LoadingSpinner'
 
-// Pages
+// Regular Pages
 import Home from './pages/Home'
 import Login from './pages/Login'
 import Register from './pages/Register'
@@ -22,22 +22,28 @@ import Credits from './pages/Credits'
 import Profile from './pages/Profile'
 import NotFound from './pages/NotFound'
 
+// Fixed Content Layout and Pages
+import FixedContentLayout from './components/FixedContenLayout'
+import FixedContentHome from './pages/FixedContentHome'
+import SubjectList from './pages/SubjectList'
+import CourseList from './pages/CourseList'
+import CourseDetail from './pages/CourseDetail'
+import LessonDetail from './pages/LessonDetail'
+import LearningDashboard from './pages/LearningDashboard'
+
 function App() {
   const { user, isLoading, checkAuth } = useAuthStore()
   const { language } = useLanguageStore()
 
   useEffect(() => {
-    // Initialize authentication state
     checkAuth()
   }, [checkAuth])
 
   useEffect(() => {
-    // Update document direction when language changes
     const direction = language === 'ar' ? 'rtl' : 'ltr'
     document.documentElement.dir = direction
     document.documentElement.lang = language
     
-    // Add font class to body for RTL languages
     if (language === 'ar') {
       document.body.classList.add('font-cairo')
     } else {
@@ -45,7 +51,6 @@ function App() {
     }
   }, [language])
 
-  // Show loading spinner while checking authentication
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center">
@@ -69,7 +74,7 @@ function App() {
         />
       </Route>
 
-      {/* Protected routes */}
+      {/* Protected routes - Regular App */}
       <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="children" element={<Children />} />
@@ -77,6 +82,16 @@ function App() {
         <Route path="history" element={<ContentHistory />} />
         <Route path="credits" element={<Credits />} />
         <Route path="profile" element={<Profile />} />
+      </Route>
+
+      {/* Protected routes - Fixed Content System with Special Layout */}
+      <Route path="/fixed-content" element={<ProtectedRoute><FixedContentLayout /></ProtectedRoute>}>
+        <Route index element={<FixedContentHome />} />
+        <Route path="dashboard" element={<LearningDashboard />} />
+        <Route path="subjects" element={<SubjectList />} />
+        <Route path="subjects/:subjectId" element={<CourseList />} />
+        <Route path="courses/:courseId" element={<CourseDetail />} />
+        <Route path="lessons/:lessonId" element={<LessonDetail />} />
       </Route>
 
       {/* 404 route */}

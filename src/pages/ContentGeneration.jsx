@@ -30,7 +30,7 @@ const ContentGeneration = () => {
   const [searchParams] = useSearchParams()
   const { user } = useAuthStore()
   const { t, isRTL } = useLanguageStore()
-  
+  const [includeImages, setIncludeImages] = useState(false)
   const [children, setChildren] = useState([])
   const [isGenerating, setIsGenerating] = useState(false)
   const [generationStatus, setGenerationStatus] = useState(null)
@@ -91,6 +91,8 @@ const ContentGeneration = () => {
     }
   }
 
+
+  
 const checkGenerationStatus = async () => {
   if (!sessionId) {
     console.warn('No session ID for status check')
@@ -314,15 +316,19 @@ const checkGenerationStatus = async () => {
     }
   }
 
-  const getRequiredCredits = (contentType) => {
-    const costs = {
-      story: 1,
-      worksheet: 2,
-      quiz: 2,
-      exercise: 1
-    }
-    return costs[contentType] || 1
+  const getRequiredCredits = (contentType, withImages = false) => {
+  const baseCosts = {
+    story: 1,
+    worksheet: 2,
+    quiz: 2,
+    exercise: 1
   }
+  
+  const baseCost = baseCosts[contentType] || 1
+  const imageCost = withImages ? 2 : 0
+  
+  return baseCost + imageCost
+}
 
   const contentTypes = [
     {
@@ -508,6 +514,50 @@ const checkGenerationStatus = async () => {
       )
     }
 
+    
+{/* Image Gallery - NEW SECTION */}
+{generatedContent.generated_images && generatedContent.generated_images.length > 0 && (
+  <div className="mb-6">
+    <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+      🖼️ Story Images ({generatedContent.generated_images.length})
+    </h4>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {generatedContent.generated_images.map((image, index) => (
+        <div key={index} className="border border-gray-200 rounded-lg overflow-hidden bg-white shadow-sm">
+          <div className="aspect-square bg-gray-100 flex items-center justify-center">
+            <img
+              src={image.image_url}
+              alt={image.description}
+              className="max-w-full max-h-full object-contain"
+              onError={(e) => {
+                console.error('Image failed to load:', image.image_url)
+                e.target.style.display = 'none'
+                e.target.nextSibling.style.display = 'block'
+              }}
+            />
+            <div 
+              className="text-gray-500 text-center p-4 hidden"
+              style={{ display: 'none' }}
+            >
+              <p>Image failed to load</p>
+              <p className="text-xs mt-1">Scene: {image.scene}</p>
+            </div>
+          </div>
+          <div className="p-3">
+            <p className="text-sm font-medium text-gray-900 mb-1">
+              {image.scene}
+            </p>
+            <p className="text-xs text-gray-600">
+              {image.description}
+            </p>
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+)}
+
+
     // Check if this is a WORKSHEET and has questions - show interactive worksheet
     if (generatedContent.content_type === 'worksheet' && generatedContent.questions && generatedContent.questions.length > 0) {
       return (
@@ -590,6 +640,48 @@ const checkGenerationStatus = async () => {
                     {generatedContent.content}
                   </div>
                 </div>
+
+                 {/* ADD THE IMAGE GALLERY HERE - RIGHT AFTER THE CONTENT */}
+            {generatedContent.generated_images && generatedContent.generated_images.length > 0 && (
+              <div className="mb-6">
+                <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                  🖼️ Story Images ({generatedContent.generated_images.length})
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {generatedContent.generated_images.map((image, index) => (
+                    <div key={index} className="border border-gray-200 rounded-lg overflow-hidden bg-white shadow-sm">
+                      <div className="aspect-square bg-gray-100 flex items-center justify-center">
+                        <img
+                          src={image.image_url}
+                          alt={image.description}
+                          className="max-w-full max-h-full object-contain"
+                          onError={(e) => {
+                            console.error('Image failed to load:', image.image_url)
+                            e.target.style.display = 'none'
+                            e.target.nextSibling.style.display = 'block'
+                          }}
+                        />
+                        <div 
+                          className="text-gray-500 text-center p-4 hidden"
+                          style={{ display: 'none' }}
+                        >
+                          <p>Image failed to load</p>
+                          <p className="text-xs mt-1">Scene: {image.scene}</p>
+                        </div>
+                      </div>
+                      <div className="p-3">
+                        <p className="text-sm font-medium text-gray-900 mb-1">
+                          {image.scene}
+                        </p>
+                        <p className="text-xs text-gray-600">
+                          {image.description}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
                 {/* Show questions for non-interactive content */}
                {generatedContent.questions && generatedContent.questions.length > 0 && (
@@ -782,6 +874,141 @@ const checkGenerationStatus = async () => {
             </div>
           </div>
         )}
+
+        
+// Add this section to your form (after content options, before submit)
+<div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+  <h2 className={`text-xl font-semibold text-gray-900 mb-4 ${isRTL() ? 'font-cairo' : ''}`}>
+    4. Image Options
+  </h2>
+  
+  <div className="space-y-4">
+    {/* Image inclusion toggle */}
+    <div className="border border-gray-200 rounded-lg p-4">
+      <div className="flex items-start space-x-4">
+        <div className="flex items-center mt-1">
+          <input
+            type="checkbox"
+            id="include_images"
+            checked={includeImages}
+            onChange={(e) => setIncludeImages(e.target.checked)}
+            className="h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+          />
+        </div>
+        
+        <div className="flex-1">
+          <label htmlFor="include_images" className="block">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-lg font-medium text-gray-900">
+                🖼️ Generate with Images
+              </span>
+              <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                includeImages 
+                  ? 'bg-purple-100 text-purple-700' 
+                  : 'bg-gray-100 text-gray-600'
+              }`}>
+                +{includeImages ? '2' : '0'} credits
+              </span>
+            </div>
+            
+            <p className="text-gray-600 text-sm mb-3">
+              Add beautiful AI-generated illustrations to bring your story to life
+            </p>
+            
+            {includeImages && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-3">
+                <div className="flex items-start space-x-2">
+                  <div className="text-yellow-600 mt-0.5">⚠️</div>
+                  <div>
+                    <p className="text-yellow-800 font-medium text-sm">Image Expiration Notice</p>
+                    <p className="text-yellow-700 text-xs mt-1">
+                      Generated images are available for <strong>2 hours</strong> after creation. 
+                      After that, you'll see image descriptions but not the actual images.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className={`p-3 rounded-lg border-2 transition-all ${
+                !includeImages 
+                  ? 'border-green-300 bg-green-50' 
+                  : 'border-gray-200 bg-gray-50'
+              }`}>
+                <div className="font-medium text-gray-900 mb-1">📄 Text Only</div>
+                <div className="text-gray-600 text-xs space-y-1">
+                  <div>• Faster generation</div>
+                  <div>• Lower credit cost</div>
+                  <div>• Always available</div>
+                </div>
+              </div>
+              
+              <div className={`p-3 rounded-lg border-2 transition-all ${
+                includeImages 
+                  ? 'border-purple-300 bg-purple-50' 
+                  : 'border-gray-200 bg-gray-50'
+              }`}>
+                <div className="font-medium text-gray-900 mb-1">🎨 With Images</div>
+                <div className="text-gray-600 text-xs space-y-1">
+                  <div>• Visual storytelling</div>
+                  <div>• Higher engagement</div>
+                  <div>• 2-hour availability</div>
+                </div>
+              </div>
+            </div>
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+// Update your submit section to show dynamic pricing
+<div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+  <div className="flex items-center justify-between">
+    <div>
+      <div className="flex items-center space-x-4">
+        <div>
+          <p className={`text-sm text-gray-600 ${isRTL() ? 'font-cairo' : ''}`}>
+            Credit Cost: <span className="font-semibold">{getRequiredCredits(watchedValues.content_type, includeImages)} credits</span>
+          </p>
+          <p className={`text-xs text-gray-500 ${isRTL() ? 'font-cairo' : ''}`}>
+            Your balance: {user?.credits || 0} credits
+          </p>
+        </div>
+        
+        {includeImages && (
+          <div className="text-xs text-purple-600 bg-purple-100 px-2 py-1 rounded-full">
+            +2 for images
+          </div>
+        )}
+      </div>
+    </div>
+    
+    <div className="flex space-x-4 rtl:space-x-reverse">
+      <Button
+        type="submit"
+        size="lg"
+        disabled={isGenerating || (user?.credits || 0) < getRequiredCredits(watchedValues.content_type, includeImages)}
+        loading={isGenerating}
+        icon={<Wand2 className="w-5 h-5" />}
+        className="px-8"
+      >
+        {includeImages ? '🎨 Generate with Images' : '📄 Generate Story'}
+      </Button>
+    </div>
+  </div>
+  
+  {/* Credit warning */}
+  {(user?.credits || 0) < getRequiredCredits(watchedValues.content_type, includeImages) && (
+    <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+      <p className="text-red-700 text-sm">
+        ⚠️ Insufficient credits. You need {getRequiredCredits(watchedValues.content_type, includeImages)} credits but have {user?.credits || 0}.
+      </p>
+    </div>
+  )}
+</div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
           {/* Content Type Selection */}

@@ -11,7 +11,8 @@ import {
   Coins, 
   User,
   LogOut,
-  ChevronDown
+  ChevronDown,
+  GraduationCap // NEW ICON for courses
 } from 'lucide-react'
 import { useAuthStore } from '../stores/authstore'
 import { useLanguageStore } from '../stores/languageStore'
@@ -33,17 +34,23 @@ const Navbar = () => {
     setIsProfileOpen(false)
   }
 
-  // Navigation items for authenticated users
+  // UPDATED: Navigation items for authenticated users
   const navItems = [
     { path: '/dashboard', label: t('dashboard'), icon: LayoutDashboard },
     { path: '/children', label: t('children'), icon: Users },
     { path: '/generate', label: t('generate'), icon: PenTool },
+    { path: '/fixed-content', label: t('courses'), icon: GraduationCap }, // NEW
     { path: '/history', label: t('history'), icon: History },
     { path: '/credits', label: t('credits'), icon: Coins },
   ]
 
-  // Check if current path is active
-  const isActive = (path) => location.pathname === path
+  // UPDATED: Check if current path is active (handle nested routes)
+  const isActive = (path) => {
+    if (path === '/fixed-content') {
+      return location.pathname.startsWith('/fixed-content')
+    }
+    return location.pathname === path
+  }
 
   return (
     <nav className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">
@@ -177,7 +184,7 @@ const Navbar = () => {
                     isActive(path)
                       ? 'text-blue-600 bg-blue-50'
                       : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                  } ${isRTL() ? 'font-cairo' : ''}`}
+                    } ${isRTL() ? 'font-cairo' : ''}`}
                   onClick={() => setIsMenuOpen(false)}
                 >
                   <Icon className="w-5 h-5" />
