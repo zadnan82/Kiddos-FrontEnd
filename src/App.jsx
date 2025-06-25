@@ -35,6 +35,7 @@ import LearningDashboard from './pages/LearningDashboard'
 import JsonCourseDetail from './components/JsonCourseDetail'
 import JsonCourseViewer from './components/JsonCourseViewer'
 import DynamicCourseBrowser from './components/DynamicCourseBrowser'
+import ContentPreview from './pages/ContentPreview'
 
 function App() {
   const { user, isLoading, checkAuth } = useAuthStore()
@@ -93,6 +94,7 @@ function App() {
         <Route path="children" element={<Children />} />
         <Route path="generate" element={<ContentGeneration />} />
         <Route path="history" element={<ContentHistory />} />
+           <Route path="preview/:sessionId" element={<ContentPreview />} />
         <Route path="credits" element={<Credits />} />
         <Route path="profile" element={<Profile />} />
       </Route>

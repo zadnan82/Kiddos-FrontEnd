@@ -346,15 +346,7 @@ const debugContentItem = async (sessionId) => {
           )}
         </div>
 
-        {/* Debug info in development */}
-        {process.env.NODE_ENV === 'development' && (
-          <details className="text-xs text-gray-400">
-            <summary className="cursor-pointer">Debug Info</summary>
-            <pre className="mt-1 text-xs bg-gray-100 p-2 rounded overflow-auto">
-              {JSON.stringify(content, null, 2)}
-            </pre>
-          </details>
-        )}
+         
       </div>
 
       {/* Action Buttons */}
@@ -497,21 +489,9 @@ const testContentStatus = async () => {
     console.error('Error response:', error.response?.data)
   }
 }
+ 
 
-// Add a test button to your header (temporary for debugging)
-const renderTestButton = () => (
-  <button
-    onClick={testContentStatus}
-    className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
-    style={{ position: 'fixed', top: '10px', right: '10px', zIndex: 1000 }}
-  >
-    Test API
-  </button>
-)
-
-// Add this to your JSX return statement (temporary)
-{/* {renderTestButton()} */}
-
+ 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -523,8 +503,7 @@ const renderTestButton = () => (
           <p className={`text-gray-600 ${isRTL() ? 'font-cairo' : ''}`}>
             View and manage all your generated educational content
           </p>
-
-           {renderTestButton()} 
+ 
         </div>
 
         {/* Filters */}
@@ -638,14 +617,7 @@ const renderTestButton = () => (
 
         {/* Preview Modal */}
         {showPreview && <PreviewModal />}
-
-        // Add this to your JSX (temporarily)
-<Button
-  onClick={() => debugContentItem(contentHistory[0]?.session_id)}
-  className="mb-4"
->
-  Debug First Item
-</Button>
+ 
       </div>
     </div>
   )
